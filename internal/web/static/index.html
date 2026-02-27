@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kula-Szpiegula – Server Monitor</title>
+    <meta name="description" content="Lightweight Linux server monitoring dashboard with live metrics, CPU, memory, network, and disk graphs.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login overlay -->
+    <div id="login-overlay" class="login-overlay hidden">
+        <div class="login-card">
+            <div class="login-logo">🔮</div>
+            <h1>Kula-Szpiegula</h1>
+            <p>Server Monitoring</p>
+            <form id="login-form">
+                <input type="text" id="login-user" placeholder="Username" autocomplete="username" required>
+                <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password" required>
+                <button type="submit">Sign In</button>
+                <div id="login-error" class="login-error hidden"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main dashboard -->
+    <div id="dashboard" class="dashboard">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <span class="logo">🔮</span>
+                <h1>Kula-Szpiegula</h1>
+                <span id="hostname" class="hostname"></span>
+            </div>
+            <div class="header-right">
+                <span id="uptime" class="uptime"></span>
+                <!-- Alert bell -->
+                <div class="alert-container" id="alert-container">
+                    <button id="btn-alerts" class="btn-icon btn-alert" title="Alerts">
+                        🔔
+                        <span id="alert-badge" class="alert-badge hidden">0</span>
+                    </button>
+                    <div id="alert-dropdown" class="alert-dropdown hidden">
+                        <div class="alert-dropdown-header">Alerts</div>
+                        <div id="alert-list" class="alert-list">
+                            <div class="alert-empty">No active alerts</div>
+                        </div>
+                    </div>
+                </div>
+                <span id="connection-status" class="status-dot connected" title="Connected"></span>
+                <button id="btn-pause" class="btn-icon" title="Pause/Resume">⏸</button>
+                <!-- Layout toggle -->
+                <button id="btn-layout" class="btn-icon" title="Toggle layout">⊞</button>
+                <span id="clock" class="clock"></span>
+            </div>
+        </header>
+
+        <!-- Gauges row -->
+        <section class="gauges-row" id="gauges-row">
+            <div class="gauge-card" id="gauge-cpu">
+                <canvas id="gauge-cpu-canvas" width="160" height="100"></canvas>
+                <div class="gauge-label">CPU</div>
+                <div class="gauge-value" id="gauge-cpu-value">0%</div>
+            </div>
+            <div class="gauge-card" id="gauge-ram">
+                <canvas id="gauge-ram-canvas" width="160" height="100"></canvas>
+                <div class="gauge-label">RAM</div>
+                <div class="gauge-value" id="gauge-ram-value">0%</div>
+            </div>
+            <div class="gauge-card" id="gauge-swap">
+                <canvas id="gauge-swap-canvas" width="160" height="100"></canvas>
+                <div class="gauge-label">SWAP</div>
+                <div class="gauge-value" id="gauge-swap-value">0%</div>
+            </div>
+            <div class="gauge-card" id="gauge-lavg">
+                <canvas id="gauge-lavg-canvas" width="160" height="100"></canvas>
+                <div class="gauge-label">Load Avg (1m)</div>
+                <div class="gauge-value" id="gauge-lavg-value">0.00</div>
+            </div>
+            <div class="gauge-card" id="gauge-dl">
+                <canvas id="gauge-dl-canvas" width="160" height="100"></canvas>
+                <div class="gauge-label">↓ Download</div>
+                <div class="gauge-value" id="gauge-dl-value">0 Mbps</div>
+            </div>
+            <div class="gauge-card" id="gauge-ul">
+                <canvas id="gauge-ul-canvas" width="160" height="100"></canvas>
+                <div class="gauge-label">↑ Upload</div>
+                <div class="gauge-value" id="gauge-ul-value">0 Mbps</div>
+            </div>
+        </section>
+
+        <!-- Time controls -->
+        <section class="time-controls">
+            <div class="time-presets">
+                <button class="time-btn active" data-range="300">5m</button>
+                <button class="time-btn" data-range="900">15m</button>
+                <button class="time-btn" data-range="1800">30m</button>
+                <button class="time-btn" data-range="3600">1h</button>
+                <button class="time-btn" data-range="10800">3h</button>
+                <button class="time-btn" data-range="21600">6h</button>
+                <button class="time-btn" data-range="86400">24h</button>
+                <button class="time-btn" data-range="259200">3d</button>
+                <button class="time-btn" data-range="604800">7d</button>
+                <span class="time-divider">│</span>
+                <button class="time-btn" id="btn-custom-range" title="Custom range">📅</button>
+            </div>
+            <div class="time-custom hidden" id="time-custom">
+                <input type="datetime-local" id="custom-from" class="time-input">
+                <span class="time-sep">→</span>
+                <input type="datetime-local" id="custom-to" class="time-input">
+                <button class="time-btn time-apply" id="btn-apply-custom">Apply</button>
+            </div>
+            <div class="time-info">
+                <span id="time-range-display">Last 5 minutes</span>
+            </div>
+        </section>
+
+        <!-- Charts grid -->
+        <section class="charts-grid" id="charts-grid">
+            <div class="chart-card span-2" id="card-cpu">
+                <div class="chart-header">
+                    <h3>CPU Usage</h3>
+                    <span class="chart-subtitle" id="cpu-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-cpu"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-loadavg">
+                <div class="chart-header">
+                    <h3>Load Average</h3>
+                    <span class="chart-subtitle" id="lavg-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-loadavg"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-memory">
+                <div class="chart-header">
+                    <h3>Memory Usage</h3>
+                    <span class="chart-subtitle" id="mem-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-memory"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-swap">
+                <div class="chart-header">
+                    <h3>Swap Usage</h3>
+                    <span class="chart-subtitle" id="swap-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-swap"></canvas></div>
+            </div>
+
+            <div class="chart-card span-2" id="card-network">
+                <div class="chart-header">
+                    <h3>Network Throughput</h3>
+                    <span class="chart-subtitle" id="net-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-network"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-pps">
+                <div class="chart-header">
+                    <h3>Packets / sec</h3>
+                    <span class="chart-subtitle" id="pps-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-pps"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-connections">
+                <div class="chart-header">
+                    <h3>Connections & Sockets</h3>
+                </div>
+                <div class="chart-body"><canvas id="chart-connections"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-disk-io">
+                <div class="chart-header">
+                    <h3>Disk I/O</h3>
+                    <span class="chart-subtitle" id="diskio-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-disk-io"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-disk-util">
+                <div class="chart-header">
+                    <h3>Disk Utilization</h3>
+                </div>
+                <div class="chart-body"><canvas id="chart-disk-util"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-disk-space">
+                <div class="chart-header">
+                    <h3>Disk Space</h3>
+                </div>
+                <div class="chart-body"><canvas id="chart-disk-space"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-processes">
+                <div class="chart-header">
+                    <h3>Processes</h3>
+                    <span class="chart-subtitle" id="proc-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-processes"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-entropy">
+                <div class="chart-header">
+                    <h3>Entropy</h3>
+                </div>
+                <div class="chart-body"><canvas id="chart-entropy"></canvas></div>
+            </div>
+
+            <div class="chart-card" id="card-self">
+                <div class="chart-header">
+                    <h3>Self Monitoring</h3>
+                    <span class="chart-subtitle" id="self-subtitle"></span>
+                </div>
+                <div class="chart-body"><canvas id="chart-self"></canvas></div>
+            </div>
+        </section>
+
+        <!-- System info footer -->
+        <footer class="sys-footer">
+            <div id="sys-info"></div>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

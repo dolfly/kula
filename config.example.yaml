@@ -1,0 +1,38 @@
+# Kula-Szpiegula Configuration
+
+# Data collection settings
+collection:
+  interval: 1s
+
+# Storage settings (tiered ring-buffer)
+storage:
+  directory: ./data
+  tiers:
+    # Tier 1: 1-second resolution
+    - resolution: 1s
+      max_size: 100MB
+    # Tier 2: 1-minute aggregation
+    - resolution: 1m
+      max_size: 200MB
+    # Tier 3: 5-minute aggregation
+    - resolution: 5m
+      max_size: 200MB
+
+# Web UI settings
+web:
+  enabled: true
+  listen: "0.0.0.0"
+  port: 8080
+
+  # Authentication (optional)
+  auth:
+    enabled: false
+    username: admin
+    # Generate hash with: kula hash-password
+    password_hash: ""
+    password_salt: ""
+    session_timeout: 24h
+
+# TUI settings
+tui:
+  refresh_rate: 1s
