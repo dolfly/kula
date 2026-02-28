@@ -107,6 +107,54 @@ func TestQueryLatest(t *testing.T) {
 	}
 }
 
+func TestRingBufferWrapRead(t *testing.T) {
+	dir := t.TempDir()
+	// Use a small tier (128KB) so we wrap after ~200 samples
+	cfg := config.StorageConfig{
+		Directory: dir,
+		Tiers: []config.TierConfig{
+			{Resolution: time.Second, MaxSize: "128KB", MaxBytes: 128 * 1024},
+		},
+	}
+	store, err := NewStore(cfg)
+	if err != nil {
+		t.Fatalf("NewStore() error: %v", err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	totalSamples := 500 // enough to wrap multiple times in 128KB
+
+	for i := 0; i < totalSamples; i++ {
+		ts := base.Add(time.Duration(i) * time.Second)
+		if err := store.WriteSample(makeSample(ts)); err != nil {
+			t.Fatalf("WriteSample(%d) error: %v", i, err)
+		}
+	}
+
+	// Query the last 10 seconds
+	queryFrom := base.Add(time.Duration(totalSamples-10) * time.Second)
+	queryTo := base.Add(time.Duration(totalSamples) * time.Second)
+	results, err := store.QueryRange(queryFrom, queryTo)
+	if err != nil {
+		t.Fatalf("QueryRange() error: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("QueryRange() returned 0 results after ring buffer wrap — this is the bug!")
+	}
+	if len(results) < 8 {
+		t.Errorf("QueryRange() returned only %d results, expected ~10 recent samples", len(results))
+	}
+	t.Logf("QueryRange() returned %d results (expected ~10)", len(results))
+
+	// Verify the results are from the expected time range
+	for _, r := range results {
+		if r.Timestamp.Before(queryFrom) || r.Timestamp.After(queryTo) {
+			t.Errorf("Sample timestamp %v outside query range [%v, %v]", r.Timestamp, queryFrom, queryTo)
+		}
+	}
+}
+
 func TestQueryRangeEmpty(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()

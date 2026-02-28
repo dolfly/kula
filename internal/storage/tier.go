@@ -158,6 +158,13 @@ func (t *Tier) Write(s *AggregatedSample) error {
 
 	// Check if we need to wrap
 	if t.writeOff+int64(recordLen) > t.maxData {
+		// Write a zero sentinel to mark end-of-segment so ReadRange
+		// knows there are no more records in this tail region.
+		if t.writeOff+4 <= t.maxData {
+			sentinel := make([]byte, 4)
+			// sentinel is already all zeros (dataLen == 0)
+			t.file.WriteAt(sentinel, headerSize+t.writeOff)
+		}
 		t.writeOff = 0
 		t.wrapped = true
 	}
@@ -199,56 +206,71 @@ func (t *Tier) ReadRange(from, to time.Time) ([]*AggregatedSample, error) {
 
 	var samples []*AggregatedSample
 
-	// Read all records by scanning the data region
-	scanSize := t.writeOff
-	if t.wrapped {
-		scanSize = t.maxData
-	}
+	// Build list of (offset, length) segments to scan.
+	// When wrapped, we scan two segments:
+	//   1. writeOff..maxData  (older data from previous pass)
+	//   2. 0..writeOff        (newer data written after wrap)
+	// When not wrapped, we scan one segment: 0..writeOff.
+	type segment struct{ start, size int64 }
+	var segments []segment
 
-	// We scan from start of data region up to either writeOff (not wrapped) or full region (wrapped)
-	var startOff int64
 	if t.wrapped {
-		// Start reading from writeOff (oldest data) and wrap around
-		startOff = t.writeOff
+		segments = append(segments, segment{t.writeOff, t.maxData - t.writeOff})
+		segments = append(segments, segment{0, t.writeOff})
 	} else {
-		startOff = 0
+		segments = append(segments, segment{0, t.writeOff})
 	}
 
-	bytesRead := int64(0)
-	for bytesRead < scanSize {
-		readOff := (startOff + bytesRead) % t.maxData
-		fileOff := headerSize + readOff
+	for _, seg := range segments {
+		bytesRead := int64(0)
+		for bytesRead < seg.size {
+			readOff := seg.start + bytesRead
+			fileOff := headerSize + readOff
 
-		// Read length
-		lenBuf := make([]byte, 4)
-		if _, err := t.file.ReadAt(lenBuf, fileOff); err != nil {
-			break
-		}
-		dataLen := binary.LittleEndian.Uint32(lenBuf)
-		if dataLen == 0 || int64(dataLen) > t.maxData {
-			break
-		}
-
-		// Read data
-		data := make([]byte, dataLen)
-		if _, err := t.file.ReadAt(data, fileOff+4); err != nil {
-			if err == io.EOF {
+			// Not enough room for a length prefix in this segment
+			if seg.size-bytesRead < 4 {
 				break
 			}
-			break
-		}
 
-		sample, err := decodeSample(data)
-		if err != nil {
-			bytesRead += int64(4 + dataLen)
-			continue
-		}
+			// Read length
+			lenBuf := make([]byte, 4)
+			if _, err := t.file.ReadAt(lenBuf, fileOff); err != nil {
+				break
+			}
+			dataLen := binary.LittleEndian.Uint32(lenBuf)
 
-		if !sample.Timestamp.Before(from) && !sample.Timestamp.After(to) {
-			samples = append(samples, sample)
-		}
+			// Zero sentinel or invalid length: no more records in this segment
+			if dataLen == 0 || int64(dataLen) > t.maxData {
+				break
+			}
 
-		bytesRead += int64(4 + dataLen)
+			recordLen := int64(4 + dataLen)
+			if bytesRead+recordLen > seg.size {
+				// Record extends beyond this segment boundary
+				break
+			}
+
+			// Read data
+			data := make([]byte, dataLen)
+			if _, err := t.file.ReadAt(data, fileOff+4); err != nil {
+				if err == io.EOF {
+					break
+				}
+				break
+			}
+
+			sample, err := decodeSample(data)
+			if err != nil {
+				bytesRead += recordLen
+				continue
+			}
+
+			if !sample.Timestamp.Before(from) && !sample.Timestamp.After(to) {
+				samples = append(samples, sample)
+			}
+
+			bytesRead += recordLen
+		}
 	}
 
 	return samples, nil
