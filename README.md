@@ -1,99 +1,278 @@
-# Kula-Szpiegula: Lightweight Linux Server Monitoring Tool
+# 🔮 Kula-Szpiegula
 
-A standalone, self-contained server monitoring tool written in Go. No external databases — it uses an embedded tiered binary storage engine. Provides both a terminal-based TUI for live overview and a premium Web UI with detailed graphs and history.
+**Lightweight, self-contained Linux server monitoring tool.**
+
+Zero dependencies. No external databases. Single binary. Just deploy and go.
 
 <img width="1214" height="838" alt="image" src="https://github.com/user-attachments/assets/ce32e416-5a67-4d0a-bff1-d8fb6dcfd806" />
 
-## Architecture
+---
+
+## What It Does
+
+Kula-Szpiegula collects system metrics every second by reading directly from `/proc` and `/sys`, stores them in a built-in tiered ring-buffer storage engine, and serves them through a real-time Web UI dashboard and a terminal TUI.
+
+| Metric | What's Collected |
+|--------|-----------------|
+| **CPU** | Per-core & total usage (user, system, idle, iowait, irq, steal, guest) |
+| **Load** | 1 / 5 / 15 min averages, running & total tasks |
+| **Memory** | Total, free, available, used, buffers, cached, shmem, dirty, mapped |
+| **Swap** | Total, free, used, cached |
+| **Network** | Per-interface throughput (Mbps), packets/s, errors, drops; TCP/UDP/ICMP counters |
+| **Disks** | Per-device I/O (read/write bytes/s, utilization %); filesystem & inode usage |
+| **System** | Uptime, entropy, clock sync, hostname, logged-in users |
+| **Processes** | Task counts by state (running, sleeping, blocked, zombie), total threads |
+| **Self** | Kula's own CPU%, RSS/VMS memory, threads, file descriptors |
+
+---
+
+## How It Works
 
 ```
-Collectors → Ring-Buffer Storage → Web API / WebSocket → Dashboard
-     ↓
-    TUI
+                    ┌──────────────────────────────────────────────┐
+                    │              Linux Kernel                    │
+                    │     /proc/stat  /proc/meminfo  /sys/...      │
+                    └──────────────────┬───────────────────────────┘
+                                       │ read every 1s
+                                       ▼
+                              ┌─────────────────┐
+                              │    Collectors    │
+                              │  (cpu, mem, net, │
+                              │   disk, system)  │
+                              └────────┬────────┘
+                                       │ Sample struct
+                          ┌────────────┼────────────┐
+                          ▼            ▼            ▼
+                   ┌────────────┐ ┌────────┐ ┌──────────┐
+                   │  Storage   │ │  Web   │ │   TUI    │
+                   │  Engine    │ │ Server │ │ Terminal │
+                   └─────┬──────┘ └───┬────┘ └──────────┘
+                         │            │
+              ┌──────────┼──────┐     │ HTTP + WebSocket
+              ▼          ▼      ▼     ▼
+         ┌─────────┬─────────┬─────────┐    ┌───────────────┐
+         │ Tier 1  │ Tier 2  │ Tier 3  │    │   Dashboard   │
+         │   1s    │   1m    │   5m    │    │   (Browser)   │
+         │ 100 MB  │ 200 MB  │ 200 MB  │    └───────────────┘
+         └─────────┴─────────┴─────────┘
+           Ring-buffer binary files
+           with circular overwrites
 ```
 
-- **Collectors**: Read directly from `/proc` and `/sys` every second.
-- **Ring-Buffer Storage**: Custom binary ring-buffer files per tier (1s, 1m, 5m resolution). Pre-allocated files with circular overwrites ensure predictable disk usage.
-- **Web Backend**: HTTP/WebSocket server with session-based authentication using Whirlpool hashing with salt.
-- **Web Frontend**: Premium dashboard SPA built with Chart.js, custom SVG gauges, and live WebSocket streaming.
-- **TUI**: Modern terminal dashboard using `bubbletea` and `lipgloss`.
+### Storage Engine
 
-## Features & Metrics Collected
+Data is persisted in **pre-allocated ring-buffer files** per tier. Each tier file has a fixed maximum size — when it fills up, new data overwrites the oldest entries. This gives predictable, bounded disk usage with no cleanup needed.
 
-### Real-time Monitoring
-- **CPU**: Per-core and total usage (user, nice, system, idle, iowait, irq, softirq, steal, guest).
-- **Load Average**: 1, 5, and 15 minute averages; running and total tasks.
-- **Memory**: Total, free, available, used, buffers, cached, reclaimable, shmem, dirty, mapped.
-- **Swap**: Total, free, used, cached.
-- **Network**: Per-interface throughput (Mbps), packets, errors, drops; TCP/UDP/ICMP counters (IPv4+IPv6); socket stats.
-- **Disks**: Per-device I/O (reads/writes, utilization); filesystem usage and inode stats.
-- **System**: Uptime, entropy, clock sync status, hostname, logged-in users.
-- **Processes**: Task counts by state (running, sleeping, blocked, zombie); total threads.
-- **Self-Monitoring**: Tool's own CPU%, RSS/VMS memory, threads, and file descriptors.
+- **Tier 1** — Raw 1-second samples (default 100 MB)
+- **Tier 2** — 1-minute aggregates: averaged CPU & network, last-value gauges (default 200 MB)
+- **Tier 3** — 5-minute aggregates, same logic (default 200 MB)
 
-### Data Retention Tiers
-Configurable storage limits for tiered data:
-- **Tier 1**: 1-second resolution (default 100MB).
-- **Tier 2**: 1-minute aggregation (default 200MB).
-- **Tier 3**: 5-minute aggregation (default 200MB).
+### Web Backend
 
-## Implementation Status
+The HTTP server exposes a REST API (`/api/current`, `/api/history`, `/api/config`) and a WebSocket endpoint (`/ws`) for live streaming. Authentication is optional — when enabled, it uses **Whirlpool hashing with salt** and session cookies or Bearer tokens.
 
-| Phase | Milestone | Status |
-|-------|-----------|--------|
-| **1** | Foundation (Structure, Config, Collectors, Storage) | [x] |
-| **2** | TUI (Terminal Dashboard) | [x] |
-| **3** | Web Backend (API, WebSocket, Whirlpool Auth) | [x] |
-| **4** | Web Frontend (Gauges, History Graphs, Live Updates) | [x] |
-| **5** | Verification (Build, API, Stability) | [x] |
+### Dashboard SPA
 
-*Current Binary Size: ~11MB (static ELF 64-bit)*
+The frontend is a single-page application embedded in the binary. Built on Chart.js with custom SVG gauges, it connects via WebSocket for live updates and falls back to history API for longer time ranges. Features include:
 
-## Setup and Usage
+- Interactive zoom with drag-select (auto-pauses live stream)
+- Focus mode to show only selected graphs
+- Grid / stacked list layout toggle
+- Alert system for clock sync & entropy issues
+- Gap detection for missing data points
 
-### 1. Build from Source
+---
+
+## Installation
+
+### Build from Source
+
 ```bash
+git clone https://github.com/c0m4r/kula.git
+cd kula
 go build -o kula ./cmd/kula/
 ```
 
-### 2. Configuration
-Copy the example configuration and adjust paths:
+### Cross-Compile
+
 ```bash
+bash addons/build.sh    # builds amd64, arm64, riscv64
+```
+
+### Debian / Ubuntu (.deb)
+
+```bash
+bash addons/build_deb.sh
+sudo dpkg -i kula_*.deb
+```
+
+### Arch Linux (AUR)
+
+```bash
+bash addons/build_aur.sh
+cd aur && makepkg -si
+```
+
+### Docker
+
+```bash
+bash addons/docker/build.sh
+docker compose -f addons/docker/docker-compose.yml up -d
+```
+
+---
+
+## Usage
+
+```
+kula [flags] [command]
+
+Commands:
+  serve          Start monitoring daemon with web UI (default)
+  tui            Launch terminal dashboard
+  hash-password  Generate password hash for config
+
+Flags:
+  -config string  Path to config file (default "config.yaml")
+```
+
+### Quick Start
+
+```bash
+# 1. Copy and edit config
 cp config.example.yaml config.yaml
-# Edit config.yaml - ensure storage.directory is writable
+
+# 2. Start the server
+./kula serve
+# Dashboard at http://localhost:8080
+
+# 3. Or use the terminal UI
+./kula tui
 ```
 
-### 3. Generate Password Hash (Optional)
-If authentication is enabled in `config.yaml`:
+### Authentication (Optional)
+
 ```bash
+# Generate password hash
 ./kula hash-password
-# Follow prompts to generate hash and salt for your config
+
+# Add the output to config.yaml under web.auth
 ```
 
-### 4. Run the Tool
-**Serve Mode (Web UI + Collection):**
+### Service Management
+
+Init system files are provided in `addons/init/`:
+
 ```bash
-./kula --config=config.yaml serve
-# Access at http://localhost:8080
+# systemd
+sudo cp addons/init/systemd/kula.service /etc/systemd/system/
+sudo systemctl enable --now kula
+
+# OpenRC
+sudo cp addons/init/openrc/kula /etc/init.d/
+sudo rc-update add kula default
+
+# runit
+sudo cp -r addons/init/runit/kula /etc/sv/
+sudo ln -s /etc/sv/kula /var/service/
 ```
 
-**TUI Mode:**
-```bash
-./kula --config=config.yaml tui
+---
+
+## Configuration
+
+All settings live in `config.yaml`. See [`config.example.yaml`](config.example.yaml) for defaults.
+
+```yaml
+collection:
+  interval: 1s                   # How often to collect metrics
+
+web:
+  enabled: true
+  listen: "0.0.0.0"
+  port: 8080
+  join_metrics: false            # false = show gaps, true = connect lines
+  auth:
+    enabled: false               # Enable login with Whirlpool-hashed password
+
+storage:
+  directory: ./data
+  tiers:
+    - resolution: 1s
+      max_size: 100MB            # Ring-buffer size per tier
+    - resolution: 1m
+      max_size: 200MB
+    - resolution: 5m
+      max_size: 200MB
 ```
+
+---
 
 ## Project Structure
 
 ```
-kula-szpiegula/
-├── cmd/kula/main.go           # CLI Entry point
+kula/
+├── cmd/kula/
+│   └── main.go                 # CLI entry point, flag parsing, commands
 ├── internal/
-│   ├── config/                # YAML configuration logic
-│   ├── collector/             # /proc and /sys metric collectors
-│   ├── storage/               # Tiered ring-buffer storage engine
-│   ├── tui/                   # bubbletea terminal dashboard
-│   └── web/                   # HTTP server, WebSocket, and Auth (Whirlpool)
-│       └── static/            # Embedded Dashboard SPA (HTML/CSS/JS)
-├── config.example.yaml        # Template configuration
-└── go.mod
+│   ├── collector/              # Metric collectors (/proc, /sys readers)
+│   │   ├── collector.go        #   Orchestrator — gathers all metrics
+│   │   ├── types.go            #   Sample struct (CPU, mem, net, disk...)
+│   │   ├── cpu.go              #   /proc/stat parser
+│   │   ├── memory.go           #   /proc/meminfo parser
+│   │   ├── network.go          #   /proc/net/* parser
+│   │   ├── disk.go             #   /proc/diskstats + /proc/mounts
+│   │   └── system.go           #   Uptime, entropy, hostname
+│   ├── config/                 # YAML config loader with defaults
+│   ├── storage/                # Tiered ring-buffer engine
+│   │   ├── store.go            #   Multi-tier coordinator + aggregation
+│   │   ├── tier.go             #   Single ring-buffer file
+│   │   └── codec.go            #   JSON encode/decode for samples
+│   ├── tui/                    # Terminal UI (bubbletea + lipgloss)
+│   └── web/                    # HTTP/WebSocket server
+│       ├── server.go           #   Routes, API handlers, startup
+│       ├── websocket.go        #   Live streaming hub + client mgmt
+│       ├── auth.go             #   Whirlpool auth, sessions, middleware
+│       ├── whirlpool.go        #   Whirlpool hash implementation
+│       └── static/             #   Embedded SPA (served from binary)
+│           ├── index.html      #     Dashboard markup
+│           ├── app.js          #     Charts, WebSocket, UI logic
+│           └── style.css       #     Dark theme, glassmorphism
+├── addons/
+│   ├── build.sh                # Cross-compile (amd64/arm64/riscv64)
+│   ├── build_deb.sh            # Debian package builder
+│   ├── build_aur.sh            # Arch AUR PKGBUILD generator
+│   ├── check.sh                # Linting + testing
+│   ├── docker/                 # Dockerfile + compose
+│   └── init/                   # Service files (systemd/openrc/runit)
+├── docs/
+│   ├── kula.1                  # Man page
+│   └── kula-completion.bash    # Bash completion
+├── config.example.yaml
+├── VERSION                     # Single source of truth for version
+├── CHANGELOG
+└── LICENSE                     # AGPL-3.0
 ```
+
+---
+
+## Development
+
+```bash
+# Run tests
+go test -v -race ./...
+
+# Lint + test suite
+bash addons/check.sh
+
+# Build
+go build -o kula ./cmd/kula/
+```
+
+Binary size: ~11 MB (static, CGO_ENABLED=0)
+
+---
+
+## License
+
+[GNU Affero General Public License v3.0](LICENSE)
