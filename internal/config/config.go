@@ -66,9 +66,9 @@ func DefaultConfig() *Config {
 		Storage: StorageConfig{
 			Directory: dataDir,
 			Tiers: []TierConfig{
-				{Resolution: time.Second, MaxSize: "100MB"},
-				{Resolution: time.Minute, MaxSize: "200MB"},
-				{Resolution: 5 * time.Minute, MaxSize: "200MB"},
+				{Resolution: time.Second, MaxSize: "250MB"},
+				{Resolution: time.Minute, MaxSize: "150MB"},
+				{Resolution: 5 * time.Minute, MaxSize: "50MB"},
 			},
 		},
 		Web: WebConfig{

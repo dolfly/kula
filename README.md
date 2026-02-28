@@ -199,11 +199,11 @@ storage:
   directory: ./data
   tiers:
     - resolution: 1s
-      max_size: 100MB            # Ring-buffer size per tier
+      max_size: 250MB            # Ring-buffer size per tier
     - resolution: 1m
-      max_size: 200MB
+      max_size: 150MB
     - resolution: 5m
-      max_size: 200MB
+      max_size: 50MB
 ```
 
 ---

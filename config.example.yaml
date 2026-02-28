@@ -10,13 +10,13 @@ storage:
   tiers:
     # Tier 1: 1-second resolution
     - resolution: 1s
-      max_size: 100MB
+      max_size: 250MB
     # Tier 2: 1-minute aggregation
     - resolution: 1m
-      max_size: 200MB
+      max_size: 150MB
     # Tier 3: 5-minute aggregation
     - resolution: 5m
-      max_size: 200MB
+      max_size: 50MB
 
 # Web UI settings
 web:
