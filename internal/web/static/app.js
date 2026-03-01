@@ -656,6 +656,9 @@
         if (s.sys?.uptime_human) el('uptime').textContent = '⏱ ' + s.sys.uptime_human;
         el('clock').textContent = new Date(s.ts).toLocaleTimeString();
 
+        // Helper to prevent XSS in innerHTML
+        const escapeHTML = (str) => String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+
         // System info footer — with colored clock sync
         const sysInfo = [];
         if (s.sys?.clock_synced !== undefined) {
@@ -664,9 +667,9 @@
             const label = synced ? '✓ synced' : '✗ not synced';
             sysInfo.push(`clock: <span class="${cls}">${label}</span>`);
         }
-        if (s.sys?.clock_source) sysInfo.push('source: ' + s.sys.clock_source);
-        if (s.sys?.entropy) sysInfo.push('entropy: ' + s.sys.entropy);
-        if (s.sys?.user_count !== undefined) sysInfo.push('users: ' + s.sys.user_count);
+        if (s.sys?.clock_source) sysInfo.push('source: ' + escapeHTML(s.sys.clock_source));
+        if (s.sys?.entropy) sysInfo.push('entropy: ' + escapeHTML(s.sys.entropy));
+        if (s.sys?.user_count !== undefined) sysInfo.push('users: ' + escapeHTML(s.sys.user_count));
         if (s.self) sysInfo.push('self: ' + s.self.cpu_pct.toFixed(1) + '% cpu, ' + formatBytesShort(s.self.mem_rss) + ' rss');
         el('sys-info').innerHTML = sysInfo.join('  │  ');
     }

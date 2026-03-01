@@ -20,6 +20,11 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 - Buffered I/O Streams (time windows switching optimization)
 
+### Security
+
+- Fixed XSS vulnerability in web UI system info display
+- Fixed insecure Auth Session cookie by setting Secure attribute dynamically
+
 ## [0.3.1] - 2026-02-28
 
 ### Changed
