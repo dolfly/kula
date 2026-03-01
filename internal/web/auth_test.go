@@ -34,9 +34,9 @@ func TestHashPasswordDifferentPasswords(t *testing.T) {
 
 func TestHashPasswordLength(t *testing.T) {
 	hash := HashPassword("test", "salt")
-	// Whirlpool produces 512-bit hash = 64 bytes = 128 hex chars
-	if len(hash) != 128 {
-		t.Errorf("Hash length = %d, want 128 hex chars (Whirlpool 512-bit)", len(hash))
+	// Argon2id produces 256-bit hash = 32 bytes = 64 hex chars based on keyLen=32
+	if len(hash) != 64 {
+		t.Errorf("Hash length = %d, want 64 hex chars (Argon2id 256-bit)", len(hash))
 	}
 }
 

@@ -24,12 +24,14 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 - Fixed XSS vulnerability in web UI system info display
 - Fixed insecure Auth Session cookie by setting Secure attribute dynamically
+- Replaced Whirlpool with argon2
 - Fixed critical RLock and Delete map panic in ValidateSession
-- Fixed weak session token generation crash by returning an error instead of panicking
-- Fixed storage tier creation permissions from world-readable `0644` to `0600`
-- Configured native Web Security Headers (CSP, Frame-Options, Content-Type)
+- Fixed weak session token generation crash
+- Fixed storage tier permissions
+- Added security headers (CSP, Frame-Options, Content-Type)
 - Restrained WebSocket connections mapping MaxPayloadBytes limits
 - Added missing upper bounds checks against abusive 31+ day historical queries
+- Masked password with asterisks in the hash-password mode
 
 ## [0.3.1] - 2026-02-28
 

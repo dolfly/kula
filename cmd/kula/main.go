@@ -17,6 +17,8 @@ import (
 	"kula-szpiegula/internal/storage"
 	"kula-szpiegula/internal/tui"
 	"kula-szpiegula/internal/web"
+
+	"github.com/charmbracelet/x/term"
 )
 
 var version = "0.1.0"
@@ -65,10 +67,7 @@ func main() {
 
 	// Handle hash-password command first (doesn't need config)
 	if cmd == "hash-password" {
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Enter password: ")
-		password, _ := reader.ReadString('\n')
-		password = strings.TrimSpace(password)
+		password := readPasswordWithAsterisks()
 		web.PrintHashedPassword(password)
 		return
 	}
@@ -150,4 +149,48 @@ func runTUI(cfg *config.Config) {
 	if err := tui.RunHeadless(coll, cfg.TUI.RefreshRate); err != nil {
 		log.Fatalf("TUI error: %v", err)
 	}
+}
+
+func readPasswordWithAsterisks() string {
+	fmt.Print("Enter password: ")
+	fd := uintptr(syscall.Stdin)
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		// Fallback to basic bufio if not running in a proper terminal
+		reader := bufio.NewReader(os.Stdin)
+		password, _ := reader.ReadString('\n')
+		return strings.TrimSpace(password)
+	}
+	defer term.Restore(fd, oldState)
+
+	var password []byte
+	b := make([]byte, 1)
+	for {
+		n, err := os.Stdin.Read(b)
+		if err != nil || n == 0 {
+			break
+		}
+
+		if b[0] == '\n' || b[0] == '\r' {
+			fmt.Print("\n\r")
+			break
+		}
+
+		if b[0] == 3 { // Ctrl+C
+			term.Restore(fd, oldState)
+			os.Exit(1)
+		}
+
+		if b[0] == 127 || b[0] == '\b' { // Backspace
+			if len(password) > 0 {
+				password = password[:len(password)-1]
+				fmt.Print("\b \b")
+			}
+			continue
+		}
+
+		password = append(password, b[0])
+		fmt.Print("*")
+	}
+	return string(password)
 }

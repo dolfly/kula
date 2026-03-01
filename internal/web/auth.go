@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"kula-szpiegula/internal/config"
+
+	"golang.org/x/crypto/argon2"
 )
 
-// Whirlpool hash implementation
-// Using a Go implementation of the Whirlpool hash function
+// AuthManager handles authentication validation and sessions.
 
 type AuthManager struct {
 	mu       sync.RWMutex
@@ -34,12 +35,16 @@ func NewAuthManager(cfg config.AuthConfig) *AuthManager {
 	}
 }
 
-// HashPassword creates a Whirlpool hash with the given salt.
+// HashPassword creates an Argon2id hash with the given salt.
 func HashPassword(password, salt string) string {
-	data := []byte(salt + password)
-	h := NewWhirlpool()
-	h.Write(data)
-	return hex.EncodeToString(h.Sum(nil))
+	// Standard Argon2id parameters
+	timeParam := uint32(1)
+	memory := uint32(64 * 1024)
+	threads := uint8(4)
+	keyLen := uint32(32)
+
+	hash := argon2.IDKey([]byte(password), []byte(salt), timeParam, memory, threads, keyLen)
+	return hex.EncodeToString(hash)
 }
 
 // GenerateSalt creates a random 32-byte hex salt.
