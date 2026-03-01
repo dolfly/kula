@@ -21,7 +21,7 @@ storage:
 # Web UI settings
 web:
   enabled: true
-  listen: "0.0.0.0"
+  listen: "0.0.0.0" # for IPv6 use "[IPv6_ADDRESS]"
   port: 8080
 
   # Join data points across gaps in the graphs (default: false)
