@@ -97,12 +97,23 @@ The frontend is a single-page application embedded in the binary. Built on Chart
 
 ## Installation
 
-### Quick
+### Standalone
 
 ```bash
-wget -O kula https://github.com/c0m4r/kula/releases/latest/download/kula-linux-amd64
-chmod +x kula
+wget https://github.com/c0m4r/kula/releases/download/0.5.0/kula-0.5.0-amd64.tar.gz
+echo "d27072c447e222e998abf8789f5c96ac578d885c167f82b49aa560e755fc6963 kula-0.5.0-amd64.tar.gz" | sha256sum -c || rm kula-0.5.0-amd64.tar.gz
+tar -xvf kula-0.5.0-amd64.tar.gz
+cd kula
 ./kula
+```
+
+### Debian/Ubuntu
+
+```bash
+wget https://github.com/c0m4r/kula/releases/download/0.5.0/kula_0.5.0_amd64.deb
+echo "e9d124f4f6711a7ae7855e766e0fd1fa1b2f3f7bf4c155dcb9c98d6123aebdd0" | sha256sum -c || rm kula_0.5.0_amd64.deb
+sudo dpkg -i kula_0.5.0_amd64.deb
+systemctl status kula
 ```
 
 ### Build from Source
@@ -111,33 +122,6 @@ chmod +x kula
 git clone https://github.com/c0m4r/kula.git
 cd kula
 bash addons/build.sh
-```
-
-### Cross-Compile
-
-```bash
-bash addons/build.sh cross    # builds amd64, arm64, riscv64
-```
-
-### Debian / Ubuntu (.deb)
-
-```bash
-bash addons/build_deb.sh
-sudo dpkg -i dist/kula_*.deb
-```
-
-### Arch Linux (AUR)
-
-```bash
-bash addons/build_aur.sh
-cd dist/aur && makepkg -si
-```
-
-### Docker
-
-```bash
-bash addons/docker/build.sh
-docker compose -f addons/docker/docker-compose.yml up -d
 ```
 
 ---
@@ -214,6 +198,48 @@ All settings live in `config.yaml`. See [`config.example.yaml`](config.example.y
 
 ---
 
+## Development
+
+```bash
+# Lint + test suite
+bash ./addons/check.sh
+
+# Build dev (Binary size: ~11MB)
+CGO_ENABLED=0 go build -o kula ./cmd/kula/
+
+# Build prod (Binary size: ~8MB)
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o kula ./cmd/kula/
+```
+
+### Cross-Compile
+
+```bash
+bash addons/build.sh cross    # builds amd64, arm64, riscv64
+```
+
+### Debian / Ubuntu (.deb)
+
+```bash
+bash addons/build_deb.sh
+sudo dpkg -i dist/kula_*.deb
+```
+
+### Arch Linux (AUR)
+
+```bash
+bash addons/build_aur.sh
+cd dist/aur && makepkg -si
+```
+
+### Docker
+
+```bash
+bash addons/docker/build.sh
+docker compose -f addons/docker/docker-compose.yml up -d
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -261,25 +287,11 @@ kula/
 
 ---
 
-## Development
-
-```bash
-# Lint + test suite
-bash ./addons/check.sh
-
-# Build dev (Binary size: ~11MB)
-CGO_ENABLED=0 go build -o kula ./cmd/kula/
-
-# Build prod (Binary size: ~8MB)
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o kula ./cmd/kula/
-
-```
-
----
-
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE)
+
+---
 
 ## Attributions
 
