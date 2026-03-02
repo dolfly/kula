@@ -95,6 +95,14 @@ The frontend is a single-page application embedded in the binary. Built on Chart
 
 ## Installation
 
+### Quick
+
+```bash
+wget -O kula https://github.com/c0m4r/kula/releases/latest/download/kula-linux-amd64
+chmod +x kula
+./kula
+```
+
 ### Build from Source
 
 ```bash
