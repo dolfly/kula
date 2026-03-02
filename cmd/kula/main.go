@@ -156,7 +156,7 @@ func runServe(cfg *config.Config, configPath string, osName, kernelVersion, cpuA
 		}
 	}()
 
-	log.Printf("Kula-Szpiegula started (collecting every %s)", cfg.Collection.Interval)
+	log.Printf("Kula-Szpiegula v%s started (collecting every %s)", version, cfg.Collection.Interval)
 	log.Printf("OS: %s, Kernel: %s, Arch: %s", osName, kernelVersion, cpuArch)
 	<-ctx.Done()
 
