@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
-## [0.4.2-alpha]
+## [0.4.2] - 2026-03-02
 
 ### Added
 
 - OS, Kernel, Arch info
+
+### Changed
+
+- various graph and storage enhancements
 
 ### Fixed
 
