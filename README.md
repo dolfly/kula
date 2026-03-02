@@ -110,7 +110,7 @@ chmod +x kula
 ```bash
 git clone https://github.com/c0m4r/kula.git
 cd kula
-go build -o kula ./cmd/kula/
+bash addons/build.sh
 ```
 
 ### Cross-Compile
@@ -123,14 +123,14 @@ bash addons/build.sh cross    # builds amd64, arm64, riscv64
 
 ```bash
 bash addons/build_deb.sh
-sudo dpkg -i kula_*.deb
+sudo dpkg -i dist/kula_*.deb
 ```
 
 ### Arch Linux (AUR)
 
 ```bash
 bash addons/build_aur.sh
-cd aur && makepkg -si
+cd dist/aur && makepkg -si
 ```
 
 ### Docker
@@ -143,26 +143,6 @@ docker compose -f addons/docker/docker-compose.yml up -d
 ---
 
 ## Usage
-
-```
-Usage:
-  kula [flags] [command]
-
-Commands:
-  serve          Start the monitoring daemon with web UI (default)
-  tui            Launch the terminal UI dashboard
-  hash-password  Generate an Argon2 password hash for config
-
-Flags:
-  -config string  Path to configuration file (default "config.yaml")
-  -h, --help      Show this help message
-
-Examples:
-  kula                              Start with default config
-  kula -config /etc/kula/config.yaml serve
-  kula tui
-  kula hash-password
-```
 
 ### Quick Start
 
