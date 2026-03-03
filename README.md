@@ -97,6 +97,10 @@ The frontend is a single-page application embedded in the binary. Built on Chart
 
 ## Installation
 
+Example installation methods for **amd64 (x86_64)** GNU/Linux.
+
+Check [Releases](https://github.com/c0m4r/kula/releases) for **ARM** and **RISC-V** packages.
+
 ### Standalone
 
 ```bash
@@ -115,6 +119,8 @@ echo "36fb8d016986c3bd5ad1faf1040ce74675f6bd9f9a891b7e7f7ded0bf25903fb kula_0.6.
 sudo dpkg -i kula_0.6.0_amd64.deb
 systemctl status kula
 ```
+
+### Multi-arch
 
 ### Build from Source
 
