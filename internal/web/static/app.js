@@ -37,6 +37,7 @@
         currentResolution: '1s', // resolution of data currently loaded in charts
         liveQueue: [],        // samples buffered while history is loading
         diskDeviceNames: [],  // device names matching diskutil chart datasets
+        diskSpaceMountNames: [], // mount names matching diskspace chart datasets
     };
 
     // ---- Color Palette ----
@@ -262,25 +263,22 @@
         state.charts.diskutil = createTimeSeriesChart('chart-disk-util', [],
             { max: 100, ticks: { callback: v => v + '%' } });
 
-        // Disk Space (bar chart)
-        state.charts.diskspace = new Chart(document.getElementById('chart-disk-space'), {
-            type: 'bar',
-            data: {
-                labels: [], datasets: [
-                    { label: 'Used', backgroundColor: colors.blue, data: [] },
-                    { label: 'Available', backgroundColor: 'rgba(55, 65, 81, 0.4)', data: [] },
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { stacked: true, ticks: { callback: v => formatBytesShort(v) } },
-                    y: { stacked: true, grid: { display: false } },
-                },
-            },
+        // Disk Space
+        // Disk Space — datasets are added dynamically per mount on first sample
+        state.diskSpaceMountNames = [];
+        state.charts.diskspace = createTimeSeriesChart('chart-disk-space', [],
+            { max: 100, ticks: { callback: v => Math.round(v) + '%' } }, {
+            tooltip: {
+                callbacks: {
+                    label: ctx => {
+                        const raw = ctx.raw;
+                        if (raw && raw.used !== undefined && raw.total !== undefined) {
+                            return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}% (${formatBytesShort(raw.used)} / ${formatBytesShort(raw.total)})`;
+                        }
+                        return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%';
+                    }
+                }
+            }
         });
 
         // Processes
@@ -455,19 +453,37 @@
             });
         }
 
-        // Disk Space (update bar chart — overwrite, not append)
-        if (state.charts.diskspace && s.disk?.filesystems) {
-            const labels = [];
-            const used = [];
-            const avail = [];
-            s.disk.filesystems.forEach(f => {
-                labels.push(f.mount);
-                used.push(f.used);
-                avail.push(f.available);
+        // Disk Space — one dataset per mount, created dynamically
+        if (state.charts.diskspace && s.disk?.filesystems && s.disk.filesystems.length > 0) {
+            const diskColorPairs = [
+                [colors.purple, colors.purpleAlpha],
+                [colors.cyan, colors.cyanAlpha],
+                [colors.orange, colors.orangeAlpha],
+                [colors.green, colors.greenAlpha],
+                [colors.pink, colors.pinkAlpha],
+                [colors.yellow, colors.yellowAlpha],
+                [colors.blue, colors.blueAlpha],
+                [colors.teal, colors.tealAlpha],
+                [colors.lime, colors.limeAlpha],
+                [colors.red, colors.redAlpha],
+            ];
+            const incomingMounts = s.disk.filesystems.map(f => f.mount);
+            if (incomingMounts.join(',') !== state.diskSpaceMountNames.join(',')) {
+                state.diskSpaceMountNames = incomingMounts;
+                state.charts.diskspace.data.datasets = incomingMounts.map((mount, i) => ({
+                    label: mount,
+                    borderColor: diskColorPairs[i % diskColorPairs.length][0],
+                    backgroundColor: diskColorPairs[i % diskColorPairs.length][1],
+                    fill: false,
+                    data: [],
+                    pointHitRadius: 5,
+                }));
+            }
+            s.disk.filesystems.forEach((f, i) => {
+                if (i < state.charts.diskspace.data.datasets.length) {
+                    state.charts.diskspace.data.datasets[i].data.push({ x: ts, y: f.used_pct, used: f.used, total: f.total });
+                }
             });
-            state.charts.diskspace.data.labels = labels;
-            state.charts.diskspace.data.datasets[0].data = used;
-            state.charts.diskspace.data.datasets[1].data = avail;
         }
 
         // Processes
@@ -858,6 +874,17 @@
             let r = 0, w = 0;
             s.disk.devices.forEach(d => { r += d.read_bps || 0; w += d.write_bps || 0; });
             el('diskio-subtitle', `R:${formatBytesShort(r)}/s W:${formatBytesShort(w)}/s`);
+        }
+        if (s.disk?.filesystems) {
+            let used = 0, total = 0;
+            s.disk.filesystems.forEach(f => {
+                used += f.used || 0;
+                total += f.total || 0;
+            });
+            if (total > 0) {
+                const pct = (used / total) * 100;
+                el('diskspace-subtitle', `${formatBytesShort(used)} / ${formatBytesShort(total)} (${pct.toFixed(1)}%)`);
+            }
         }
         if (s.proc) el('proc-subtitle', `${s.proc.total} total, ${s.proc.running} running`);
         if (s.self) el('self-subtitle', `${s.self.cpu_pct.toFixed(1)}% cpu, ${formatBytesShort(s.self.mem_rss)} rss`);
