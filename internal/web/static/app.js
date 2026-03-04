@@ -73,6 +73,38 @@
     Chart.defaults.plugins.legend.labels.pointStyleWidth = 8;
     Chart.defaults.plugins.legend.labels.boxHeight = 6;
 
+    // ---- Custom Tooltip Position: keep tooltip away from cursor ----
+    Chart.registry.plugins.get('tooltip'); // ensure plugin is ready
+    Chart.Tooltip.positioners.awayFromCursor = function (elements, eventPosition) {
+        const chart = this.chart;
+        const canvasRect = chart.canvas.getBoundingClientRect();
+        const tooltipWidth = this.width || 180;
+        const tooltipHeight = this.height || 80;
+        const offset = 18; // gap between tooltip and cursor
+
+        // Mouse position relative to canvas
+        const mx = eventPosition.x;
+        const my = eventPosition.y;
+
+        // Try right of cursor first, fallback to left
+        let x = mx + offset;
+        if (x + tooltipWidth > chart.chartArea.right + 10) {
+            x = mx - tooltipWidth - offset;
+        }
+        // Clamp horizontally within canvas
+        x = Math.max(0, Math.min(x, chart.width - tooltipWidth));
+
+        // Vertically: prefer above cursor, fallback to below
+        let y = my - tooltipHeight - offset;
+        if (y < 0) {
+            y = my + offset;
+        }
+        // Clamp vertically within canvas
+        y = Math.max(0, Math.min(y, chart.height - tooltipHeight));
+
+        return { x, y };
+    };
+
 
 
     // ---- Bar Gauge Drawing (alternative layout) ----
@@ -158,7 +190,10 @@
                             },
                         },
                     },
-                    tooltip: extraPlugins.tooltip || {},
+                    tooltip: Object.assign(
+                        { position: 'awayFromCursor' },
+                        extraPlugins.tooltip || {}
+                    ),
                 },
                 scales: {
                     x: {
@@ -1362,6 +1397,40 @@
         });
     }
 
+    // ---- Chart Expand / Collapse ----
+    function toggleExpandChart(cardId) {
+        const card = document.getElementById(cardId);
+        if (!card) return;
+        const isExpanded = card.classList.toggle('chart-expanded');
+        const btn = card.querySelector('.btn-expand-chart');
+        if (btn) btn.title = isExpanded ? 'Collapse chart' : 'Expand chart';
+        if (btn) btn.textContent = isExpanded ? '⊡' : '⊞';
+        // Resize the Chart.js instance so it fills the new dimensions
+        const canvas = card.querySelector('canvas');
+        if (canvas) {
+            const chartInst = Object.values(state.charts).find(c => c && c.canvas === canvas);
+            if (chartInst) {
+                setTimeout(() => chartInst.resize(), 50);
+            }
+        }
+    }
+
+    function setupExpandButtons() {
+        document.querySelectorAll('.chart-card').forEach(card => {
+            const header = card.querySelector('.chart-header');
+            if (!header) return;
+            const btn = document.createElement('button');
+            btn.className = 'btn-icon btn-expand-chart';
+            btn.title = 'Expand chart';
+            btn.textContent = '⊞';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleExpandChart(card.id);
+            });
+            header.appendChild(btn);
+        });
+    }
+
     // ---- Focus Mode ----
     const chartCardIds = [
         'card-cpu', 'card-loadavg', 'card-memory', 'card-swap',
@@ -1569,6 +1638,9 @@
 
         // Hover-pause on chart cards
         setupHoverPause();
+
+        // Expand buttons on chart cards
+        setupExpandButtons();
 
         // Close dropdowns when clicking outside
         document.addEventListener('click', (e) => {

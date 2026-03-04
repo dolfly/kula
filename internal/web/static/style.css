@@ -635,10 +635,11 @@ body {
 
 .chart-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     padding: 0.75rem 1rem;
     border-bottom: 1px solid var(--border-color);
+    gap: 0.5rem;
 }
 
 .chart-header h3 {
@@ -662,6 +663,49 @@ body {
 .chart-body canvas {
     width: 100% !important;
     height: 100% !important;
+}
+
+/* ---- Expanded Chart ---- */
+.chart-card.chart-expanded {
+    grid-column: 1 / -1;
+}
+
+.chart-card.chart-expanded .chart-body {
+    height: 330px;
+    /* 220 * 1.5 = 330 */
+}
+
+.layout-list .chart-card.chart-expanded {
+    grid-column: 1;
+}
+
+.layout-list .chart-card.chart-expanded .chart-body {
+    height: 390px;
+    /* 260 * 1.5 = 390 */
+}
+
+/* ---- Expand button in chart header ---- */
+.btn-expand-chart {
+    font-size: 0.95rem;
+    padding: 0.15rem 0.35rem;
+    line-height: 1;
+    opacity: 0.5;
+    transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.btn-expand-chart:hover {
+    opacity: 1;
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}
+
+.chart-card.chart-expanded .btn-expand-chart {
+    opacity: 1;
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.1);
 }
 
 /* ---- List Layout Mode ---- */
