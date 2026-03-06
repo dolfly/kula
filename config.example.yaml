@@ -25,6 +25,9 @@ web:
   listen: "0.0.0.0" # use [] brackets for IPv6 addresses, e.g. "[::1]"
   port: 8080
 
+  # Trust X-Forwarded-Proto headers from reverse proxies for the Secure cookie flag
+  trust_proxy: false
+
   # Join data points across gaps in the graphs (default: false)
   # When false, gaps between measurements are displayed as empty space
   join_metrics: false

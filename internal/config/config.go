@@ -39,6 +39,7 @@ type WebConfig struct {
 	Auth        AuthConfig `yaml:"auth"`
 	JoinMetrics bool       `yaml:"join_metrics"`
 	Logging     LogConfig  `yaml:"logging"`
+	TrustProxy  bool       `yaml:"trust_proxy"`
 	Version     string     `yaml:"-"` // injected at runtime, not from config file
 	OS          string     `yaml:"-"`
 	Kernel      string     `yaml:"-"`

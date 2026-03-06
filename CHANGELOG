@@ -16,6 +16,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 ### Security
 
 - fixed web socket origin validation
+- fixed secure cookie flag trust proxy validation
 
 ## [0.7.1] - 2026-03-05
 

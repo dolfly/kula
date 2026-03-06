@@ -352,7 +352,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   r.TLS != nil || (s.cfg.TrustProxy && r.Header.Get("X-Forwarded-Proto") == "https"),
 		MaxAge:   int(s.cfg.Auth.SessionTimeout.Seconds()),
 		SameSite: http.SameSiteStrictMode,
 	})
