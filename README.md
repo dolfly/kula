@@ -24,7 +24,8 @@ Zero dependencies. No external databases. Single binary. Just deploy and go.
 
 ## 📦 What It Does
 
-Kula collects system metrics every second by reading directly from `/proc` and `/sys`, stores them in a built-in tiered ring-buffer storage engine, and serves them through a real-time Web UI dashboard and a terminal TUI.
+Kula collects system metrics every second by reading directly from `/proc` and `/sys`, 
+stores them in a built-in tiered ring-buffer storage engine, and serves them through a real-time Web UI dashboard and a terminal TUI.
 
 | Metric | What's Collected |
 |--------|-----------------|
@@ -75,17 +76,23 @@ Kula collects system metrics every second by reading directly from `/proc` and `
 
 ### Storage Engine
 
-Data is persisted in **pre-allocated ring-buffer files** per tier. Each tier file has a fixed maximum size — when it fills up, new data overwrites the oldest entries. This gives predictable, bounded disk usage with no cleanup needed.
+Data is persisted in **pre-allocated ring-buffer files** per tier. Each tier file has a fixed maximum size — when it fills up, 
+new data overwrites the oldest entries. This gives predictable, bounded disk usage with no cleanup needed.
 
 - **Tier 1** — Raw 1-second samples (default 250 MB)
 - **Tier 2** — 1-minute aggregates: averaged CPU & network, last-value gauges (default 150 MB)
 - **Tier 3** — 5-minute aggregates, same logic (default 50 MB)
 
+### HTTP server
+
+The HTTP server on backend exposes a REST API and a WebSocket endpoint for live streaming. 
+Authentication is optional - when enabled, it uses Argon2id hashing with salt and session cookies. 
+It is worth adding that Kula truly respects your privacy. It works on closed networks and does not make any calls to external services.
+
 ### Dashboard
 
-The HTTP server on backend exposes a REST API and a WebSocket endpoint for live streaming. Authentication is optional - when enabled, it uses Argon2id hashing with salt and session cookies.
-
-The frontend is a single-page application embedded in the binary. Built on Chart.js with custom SVG gauges, it connects via WebSocket for live updates and falls back to history API for longer time ranges. Features include:
+The frontend is a single-page application embedded in the binary. Built on Chart.js with custom SVG gauges, 
+it connects via WebSocket for live updates and falls back to history API for longer time ranges. Features include:
 
 - Interactive zoom with drag-select (auto-pauses live stream)
 - Focus mode to show only selected graphs
@@ -94,6 +101,10 @@ The frontend is a single-page application embedded in the binary. Built on Chart
 ---
 
 ## 💾 Installation
+
+Kula was built to have everything in one binary file. You can just upload it to your server 
+and not worry about installing anything else because Kula has no dependencies. It just works out of the box! 
+It is a great tool when you need to quickly start real-time monitoring.
 
 Example installation methods for **amd64 (x86_64)** GNU/Linux.
 
@@ -238,8 +249,6 @@ black addons/*.py
 pylint addons/*.py
 mypy --strict addons/*.py
 ```
-
-Benchmarks cover the full storage engine: codec encode/decode, ring-buffer write throughput, concurrent writes, QueryRange at various sizes (small/large/wrapped), the `QueryLatest` cache vs cold-disk paths, multi-tier aggregation, and the inline downsampler.
 
 ### Cross-Compile
 
