@@ -149,13 +149,13 @@
         const tempEl = document.getElementById('gauge-cpu-temp');
         if (tempEl) {
             if (cpuTemp > 0) {
+                tempEl.classList.remove('hidden');
                 tempEl.textContent = cpuTemp.toFixed(1) + '°C';
                 if (cpuTemp >= 85) tempEl.style.color = colors.red;
                 else if (cpuTemp >= 70) tempEl.style.color = colors.orange;
                 else tempEl.style.color = 'var(--text-muted)';
             } else {
-                tempEl.textContent = '--°C';
-                tempEl.style.color = 'var(--text-muted)';
+                tempEl.classList.add('hidden');
             }
         }
 
