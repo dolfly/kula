@@ -21,6 +21,7 @@ type Config struct {
 type GlobalConfig struct {
 	Hostname       string `yaml:"hostname"`
 	ShowSystemInfo bool   `yaml:"show_system_info"`
+	DefaultTheme   string `yaml:"default_theme"`
 }
 
 type CollectionConfig struct {
@@ -90,6 +91,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Global: GlobalConfig{
 			ShowSystemInfo: true,
+			DefaultTheme:   "dark",
 		},
 		Collection: CollectionConfig{
 			Interval: time.Second,

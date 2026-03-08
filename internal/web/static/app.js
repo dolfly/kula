@@ -1406,6 +1406,10 @@
                     if (hostnameEl) hostnameEl.textContent = cfg.hostname;
                     document.title = `KULA - ${cfg.hostname}`;
                 }
+                if (cfg.theme && !localStorage.getItem('kula_theme')) {
+                    state.theme = cfg.theme;
+                    applyTheme();
+                }
 
                 console.log(
                     '%c KULA-SZPIEGULA %c v' + (cfg.version || '0.0.0') + ' %c Welcome to your monitoring dashboard! ',

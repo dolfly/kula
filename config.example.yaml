@@ -6,6 +6,8 @@ global:
   hostname: ""
   # Toggle display of OS, Kernel, and Architecture (default: true)
   show_system_info: true
+  # Default theme for the web UI: light or dark (default: dark)
+  default_theme: dark
 
 # Data collection settings
 collection:

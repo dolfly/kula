@@ -319,6 +319,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"arch":             s.cfg.Arch,
 		"hostname":         hostname,
 		"show_system_info": s.global.ShowSystemInfo,
+		"theme":            s.global.DefaultTheme,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(info); err != nil {
