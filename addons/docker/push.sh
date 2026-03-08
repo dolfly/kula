@@ -13,22 +13,26 @@ cd "$(dirname "$0")/../.."
 # Read version from VERSION file
 VERSION=$(cat VERSION | tr -d '[:space:]')
 
-if ! docker image inspect kula:"$VERSION" &>/dev/null; then
-    echo "Error: Image kula:$VERSION not found. Run build.sh first."
-    exit 1
+PLATFORMS="linux/amd64,linux/arm64,linux/riscv64"
+
+echo "Building and pushing multi-arch image for platforms: $PLATFORMS"
+echo "Tags: c0m4r/kula:$VERSION, c0m4r/kula:latest"
+
+# Ensure we have a builder that supports multi-platform
+if ! docker buildx inspect kula-builder &>/dev/null; then
+    docker buildx create --name kula-builder --use
 fi
 
-echo "Tagging and pushing image 'c0m4r/kula:$VERSION' and 'c0m4r/kula:latest'..."
-
-# Tag for Docker Hub
-docker tag kula:"$VERSION" c0m4r/kula:"$VERSION"
-docker tag kula:"$VERSION" c0m4r/kula:latest
-
 # Login
-docker login -u c0m4r
+#docker login -u c0m4r
 
-# Push
-docker push c0m4r/kula:"$VERSION"
-docker push c0m4r/kula:latest
+# Build and push using buildx
+docker buildx build \
+  --builder kula-builder \
+  --platform "$PLATFORMS" \
+  -t c0m4r/kula:"$VERSION" \
+  -t c0m4r/kula:latest \
+  -f addons/docker/Dockerfile \
+  --push .
 
 echo "Done!"

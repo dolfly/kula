@@ -22,6 +22,16 @@ cd "$(dirname "$0")/../.."
 # Read version from VERSION file
 VERSION=$(cat VERSION | tr -d '[:space:]')
 
-echo "Building Docker image 'kula:$VERSION'..."
-docker build -t kula:"$VERSION" -f addons/docker/Dockerfile .
+# Allow building for a specific platform if provided as an argument
+PLATFORM=${1:-""}
+TAG="kula:$VERSION"
+
+if [ -n "$PLATFORM" ]; then
+    echo "Building Docker image '$TAG' for platform '$PLATFORM' for local review..."
+    docker buildx build --platform "$PLATFORM" -t "$TAG" --load -f addons/docker/Dockerfile .
+else
+    echo "Building Docker image '$TAG' for host architecture..."
+    docker build -t "$TAG" -f addons/docker/Dockerfile .
+fi
+
 echo "Done!"
