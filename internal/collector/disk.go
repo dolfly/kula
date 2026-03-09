@@ -139,8 +139,13 @@ func collectFileSystems() []FileSystemInfo {
 		// Only real filesystems
 		switch fstype {
 		case "ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "f2fs",
-			"fuseblk", "nfs", "nfs4", "cifs":
+			"fuseblk", "nfs", "nfs4", "cifs", "overlay":
 		default:
+			continue
+		}
+
+		// Avoid docker specific mounts like /etc/resolv.conf, /etc/hostname, /etc/hosts
+		if strings.HasPrefix(mount, "/etc/") {
 			continue
 		}
 

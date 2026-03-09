@@ -34,3 +34,18 @@ func TestCollectFileSystems(t *testing.T) {
 		t.Errorf("unexpected fs info: %+v", fs[0])
 	}
 }
+
+func TestCollectFileSystemsDocker(t *testing.T) {
+	procPath = "testdata/docker_proc"
+
+	fs := collectFileSystems()
+	// Should only have 'overlay' at '/'
+	// /etc/resolv.conf etc should be ignored
+	// tmpfs and shm should be filtered by fstype switch
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 filesystem (overlay), got %d: %+v", len(fs), fs)
+	}
+	if fs[0].FSType != "overlay" || fs[0].MountPoint != "/" {
+		t.Errorf("expected overlay at /, got %s at %s", fs[0].FSType, fs[0].MountPoint)
+	}
+}

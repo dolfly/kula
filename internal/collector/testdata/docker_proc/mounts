@@ -1,0 +1,6 @@
+overlay / overlay rw,relatime,lowerdir=...,upperdir=...,workdir=... 0 0
+tmpfs /dev tmpfs rw,nosuid,size=65536k,mode=755 0 0
+shm /dev/shm tmpfs rw,nosuid,nodev,noexec,relatime,size=65536k 0 0
+/dev/mapper/luks-6e93d474-d8fe-417c-8725-621742ddf1b3 /etc/resolv.conf ext4 rw,relatime,data=ordered 0 0
+/dev/mapper/luks-6e93d474-d8fe-417c-8725-621742ddf1b3 /etc/hostname ext4 rw,relatime,data=ordered 0 0
+/dev/mapper/luks-6e93d474-d8fe-417c-8725-621742ddf1b3 /etc/hosts ext4 rw,relatime,data=ordered 0 0
