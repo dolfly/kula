@@ -13,6 +13,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 - Graph Y-axis max bound settings (#2)
 - Configurable default aggregation (avg/min/max) in `config.yaml`
+- Aggregated disk usage summary (Total Storage) in dashboard (#5)
 
 ### Changed
 

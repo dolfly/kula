@@ -86,7 +86,7 @@ package() {
   fi
 
   # Install documentation
-  for f in CHANGELOG VERSION README.md SECURITY.md LICENSE config.example.yaml; do
+  for f in CHANGELOG.md VERSION README.md SECURITY.md LICENSE config.example.yaml; do
       if [ -f "\$f" ]; then
           install -Dm644 "\$f" "\$pkgdir/usr/share/kula/\$f"
       fi
@@ -150,7 +150,7 @@ package() {
   fi
 
   # Install documentation
-  for f in CHANGELOG VERSION README.md SECURITY.md LICENSE config.example.yaml; do
+  for f in CHANGELOG.md VERSION README.md SECURITY.md LICENSE config.example.yaml; do
       if [ -f "$f" ]; then
           install -Dm644 "$f" "$pkgdir/usr/share/kula/$f"
       fi
