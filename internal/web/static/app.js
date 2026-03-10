@@ -1454,6 +1454,14 @@
                     state.theme = cfg.theme;
                     applyTheme();
                 }
+                if (cfg.aggregation && !localStorage.getItem('kula_aggregation')) {
+                    state.currentAggregation = cfg.aggregation;
+                    // Update active button state in the UI
+                    const aggBtns = document.querySelectorAll('#agg-presets-list .time-btn');
+                    aggBtns.forEach(b => b.classList.remove('active'));
+                    const activeBtn = document.querySelector(`#agg-presets-list .time-btn[data-agg="${state.currentAggregation}"]`);
+                    if (activeBtn) activeBtn.classList.add('active');
+                }
                 if (cfg.graphs) {
                     state.configMax = cfg.graphs;
                     initCharts(); // reload boundaries immediately on bootstrap/login

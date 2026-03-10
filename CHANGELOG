@@ -12,6 +12,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 ### Added
 
 - Graph Y-axis max bound settings (#2)
+- Configurable default aggregation (avg/min/max) in `config.yaml`
 
 ### Changed
 

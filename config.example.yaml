@@ -41,6 +41,9 @@ web:
   # When false, gaps between measurements are displayed as empty space
   join_metrics: false
 
+  # Default aggregation for historical data: avg, min, or max (default: avg)
+  default_aggregation: avg
+
   # Optional bounds limits for dynamic charts. "max_mode" can be:
   # "off": Unrestricted, Chart.js auto-scales Y-axis by stream data peaks.
   # "on": Imposes a hard Y-axis maximum matching "max_value". 

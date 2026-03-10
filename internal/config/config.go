@@ -40,18 +40,19 @@ type TierConfig struct {
 }
 
 type WebConfig struct {
-	Enabled     bool        `yaml:"enabled"`
-	Listen      string      `yaml:"listen"`
-	Port        int         `yaml:"port"`
-	Auth        AuthConfig  `yaml:"auth"`
-	JoinMetrics bool        `yaml:"join_metrics"`
-	Logging     LogConfig   `yaml:"logging"`
-	TrustProxy  bool        `yaml:"trust_proxy"`
-	Graphs      GraphConfig `yaml:"graphs"`
-	Version     string      `yaml:"-"` // injected at runtime, not from config file
-	OS          string      `yaml:"-"`
-	Kernel      string      `yaml:"-"`
-	Arch        string      `yaml:"-"`
+	Enabled            bool        `yaml:"enabled"`
+	Listen             string      `yaml:"listen"`
+	Port               int         `yaml:"port"`
+	Auth               AuthConfig  `yaml:"auth"`
+	JoinMetrics        bool        `yaml:"join_metrics"`
+	DefaultAggregation string      `yaml:"default_aggregation"`
+	Logging            LogConfig   `yaml:"logging"`
+	TrustProxy         bool        `yaml:"trust_proxy"`
+	Graphs             GraphConfig `yaml:"graphs"`
+	Version            string      `yaml:"-"` // injected at runtime, not from config file
+	OS                 string      `yaml:"-"`
+	Kernel             string      `yaml:"-"`
+	Arch               string      `yaml:"-"`
 }
 
 type GraphConfig struct {
@@ -116,9 +117,11 @@ func DefaultConfig() *Config {
 			},
 		},
 		Web: WebConfig{
-			Enabled: true,
-			Listen:  "127.0.0.1",
-			Port:    8080,
+			Enabled:            true,
+			Listen:             "127.0.0.1",
+			Port:               8080,
+			JoinMetrics:        false,
+			DefaultAggregation: "avg",
 			Auth: AuthConfig{
 				SessionTimeout: 24 * time.Hour,
 				Argon2: Argon2Config{

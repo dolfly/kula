@@ -320,6 +320,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"hostname":         hostname,
 		"show_system_info": s.global.ShowSystemInfo,
 		"theme":            s.global.DefaultTheme,
+		"aggregation":      s.cfg.DefaultAggregation,
 		"graphs": map[string]interface{}{
 			"cpu_temp": map[string]interface{}{
 				"mode":  s.cfg.Graphs.CPUTemp.MaxMode,
