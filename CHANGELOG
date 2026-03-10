@@ -11,11 +11,12 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 ### Added
 
-- Graph Y-axis max bound settings
+- Graph Y-axis max bound settings (#2)
 
 ### Changed
 
 - Format raw bytes to human readable format inside tooltips
+- Update charmbracelet/colorprofile
 
 ### Fixed
 
@@ -43,7 +44,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 ### Fixed
 
-- Disk monitoring inside docker containers
+- Disk monitoring inside docker containers (#5)
 
 ## [0.7.3] - 2026-03-08
 
@@ -69,7 +70,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 - First docker hub image release
 - Space Invaders: new high score message and sound effect
 - collector unit tests
-- Light theme & ability to toggle light/dark mode
+- Light theme & ability to toggle light/dark mode (#1)
 
 ### Fixed
 
