@@ -212,7 +212,7 @@ func (a *AuthManager) AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// CleanupSessions removes expired sessions periodically.
+// CleanupSessions removes expired sessions and stale rate limiter entries periodically.
 func (a *AuthManager) CleanupSessions() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -221,6 +221,24 @@ func (a *AuthManager) CleanupSessions() {
 	for token, sess := range a.sessions {
 		if now.After(sess.expiresAt) {
 			delete(a.sessions, token)
+		}
+	}
+
+	// Purge stale rate limiter entries
+	a.Limiter.mu.Lock()
+	defer a.Limiter.mu.Unlock()
+	cutoff := now.Add(-5 * time.Minute)
+	for ip, attempts := range a.Limiter.attempts {
+		var recent []time.Time
+		for _, t := range attempts {
+			if t.After(cutoff) {
+				recent = append(recent, t)
+			}
+		}
+		if len(recent) == 0 {
+			delete(a.Limiter.attempts, ip)
+		} else {
+			a.Limiter.attempts[ip] = recent
 		}
 	}
 }

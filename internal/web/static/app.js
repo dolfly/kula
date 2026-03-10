@@ -54,6 +54,8 @@
         lastHistoricalTs: null,
     };
 
+    const escapeHTML = (str) => String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+
     function getChartMaxBound(id) {
         let pref = {};
         try { pref = JSON.parse(localStorage.getItem('kula_graphs_max') || '{}')[id]; } catch (e) { }
@@ -1177,8 +1179,8 @@
                 <div class="alert-item">
                     <span class="alert-icon">${a.icon}</span>
                     <div class="alert-item-body">
-                        <div class="alert-item-title">${a.title}</div>
-                        <div class="alert-item-detail">${a.detail}</div>
+                        <div class="alert-item-title">${escapeHTML(a.title)}</div>
+                        <div class="alert-item-detail">${escapeHTML(a.detail)}</div>
                     </div>
                 </div>
             `).join('');
@@ -1210,9 +1212,6 @@
         const el = (id) => document.getElementById(id);
         if (s.sys?.uptime_human) el('uptime').textContent = '⏱ ' + s.sys.uptime_human;
         el('clock').textContent = new Date(s.ts).toLocaleTimeString();
-
-        // Helper to prevent XSS in innerHTML
-        const escapeHTML = (str) => String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
         // System info footer — with colored clock sync
         const sysInfo = [];
@@ -2015,7 +2014,7 @@
                 actions.className = 'chart-header-right';
                 header.appendChild(actions);
             }
-            
+
             actions.id = card.id + '-actions';
             actions.style.marginLeft = 'auto';
             actions.style.display = 'flex';

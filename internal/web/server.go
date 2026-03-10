@@ -112,6 +112,9 @@ func (s *Server) Start() error {
 	if err := s.auth.LoadSessions(); err != nil {
 		log.Printf("Warning: failed to load sessions: %v", err)
 	}
+	if s.cfg.TrustProxy {
+		log.Printf("Security Note: TrustProxy is enabled. Ensure Kula is behind a trusted reverse proxy that handles X-Forwarded-For.")
+	}
 
 	mux := http.NewServeMux()
 
