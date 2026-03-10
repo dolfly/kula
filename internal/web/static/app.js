@@ -41,7 +41,21 @@
         diskSpaceMountNames: [], // mount names matching diskspace chart datasets
         cpuTempSensorNames: [], // sensor names matching cpu temp chart datasets
         currentAggregation: localStorage.getItem('kula_aggregation') || 'avg',
+        configMax: {}, // loaded from server /api/config
     };
+
+    function getChartMaxBound(id) {
+        let pref = {};
+        try { pref = JSON.parse(localStorage.getItem('kula_graphs_max') || '{}')[id]; } catch (e) { }
+        if (!pref && state.configMax) pref = state.configMax[id];
+        if (!pref || pref.mode === 'off') return undefined;
+        if (pref.mode === 'on') return pref.value;
+        if (pref.mode === 'auto') {
+            if (typeof pref.auto === 'number' && pref.auto > 0) return pref.auto; // TjMax or Link Speed
+            return pref.value; // Fallback bound
+        }
+        return undefined;
+    }
 
     // ---- Color Palette ----
     const colors = {
@@ -255,9 +269,13 @@
         ], { max: 100, ticks: { callback: v => v + '%' } });
 
         state.cpuTempSensorNames = [];
+        let cpuTempYConfig = { ticks: { callback: v => v.toFixed(1) + '°C' } };
+        let cpuTempMax = getChartMaxBound('cpu_temp');
+        if (cpuTempMax !== undefined) cpuTempYConfig.max = cpuTempMax;
+
         state.charts.cputemp = createTimeSeriesChart('chart-cpu-temp', [
             { label: 'Temperature', borderColor: colors.orange, backgroundColor: colors.orangeAlpha, fill: true, data: [] },
-        ], { ticks: { callback: v => v.toFixed(1) + '°C' } });
+        ], cpuTempYConfig);
 
         // Load Average
         state.charts.loadavg = createTimeSeriesChart('chart-loadavg', [
@@ -282,10 +300,14 @@
             { label: 'Free', borderColor: colors.teal, data: [], fill: false, borderDash: [4, 2] },
         ], { min: 0, ticks: { callback: v => formatBytesShort(v) } });
 
+        let networkYConfig = { ticks: { callback: v => v.toFixed(1) + ' Mbps' } };
+        let networkMax = getChartMaxBound('network');
+        if (networkMax !== undefined) networkYConfig.max = networkMax;
+
         state.charts.network = createTimeSeriesChart('chart-network', [
             { label: '↓ RX', borderColor: colors.cyan, backgroundColor: colors.cyanAlpha, fill: true, data: [] },
             { label: '↑ TX', borderColor: colors.pink, backgroundColor: colors.pinkAlpha, fill: true, data: [] },
-        ], { ticks: { callback: v => v.toFixed(1) + ' Mbps' } });
+        ], networkYConfig);
 
         state.charts.pps = createTimeSeriesChart('chart-pps', [
             { label: '↓ RX pps', borderColor: colors.green, backgroundColor: colors.greenAlpha, fill: true, data: [] },
@@ -1413,6 +1435,10 @@
                     state.theme = cfg.theme;
                     applyTheme();
                 }
+                if (cfg.graphs) {
+                    state.configMax = cfg.graphs;
+                    initCharts(); // reload boundaries immediately on bootstrap/login
+                }
 
                 console.log(
                     '%c KULA-SZPIEGULA %c v' + (cfg.version || '0.0.0') + ' %c Welcome to your monitoring dashboard! ',
@@ -1644,19 +1670,180 @@
         }
     }
 
-    function setupExpandButtons() {
+    function setupChartActions() {
         document.querySelectorAll('.chart-card').forEach(card => {
             const header = card.querySelector('.chart-header');
             if (!header) return;
+
+            header.style.position = 'relative';
+
+            const actions = document.createElement('div');
+            actions.className = 'chart-header-actions';
+            actions.style.marginLeft = 'auto';
+            actions.style.display = 'flex';
+            actions.style.alignItems = 'center';
+            actions.style.gap = '0.25rem';
+
+            // Check if this graph needs a settings button
+            let graphId = null;
+            if (card.id === 'card-cpu-temp') graphId = 'cpu_temp';
+            else if (card.id === 'card-network') graphId = 'network';
+
+            if (graphId) {
+                const sBtn = document.createElement('button');
+                sBtn.className = 'btn-icon';
+                sBtn.title = 'Graph Bounds';
+                sBtn.textContent = '⚙️';
+                sBtn.style.fontSize = '0.85rem';
+                sBtn.style.padding = '0.15rem 0.35rem';
+                sBtn.style.opacity = '0.5';
+                sBtn.style.transition = 'opacity 0.15s';
+                sBtn.onmouseenter = () => sBtn.style.opacity = '1';
+                sBtn.onmouseleave = () => sBtn.style.opacity = '0.5';
+
+                const dropdown = document.createElement('div');
+                dropdown.className = 'alert-dropdown hidden';
+                dropdown.style.top = '2rem';
+                dropdown.style.right = '0';
+                dropdown.style.padding = '1rem';
+                dropdown.style.width = '200px';
+                dropdown.style.zIndex = '100';
+                dropdown.style.cursor = 'default';
+                dropdown.style.textAlign = 'left';
+
+                const title = document.createElement('div');
+                title.style.marginBottom = '0.5rem';
+                title.style.fontSize = '0.75rem';
+                title.style.fontWeight = '600';
+                title.style.textTransform = 'uppercase';
+                title.style.color = 'var(--text-muted)';
+                title.textContent = 'Y-Axis Limit';
+
+                const select = document.createElement('select');
+                select.style.width = '100%';
+                select.style.marginBottom = '0.5rem';
+                select.style.padding = '0.3rem';
+                select.style.borderRadius = 'var(--radius-sm)';
+                select.style.border = '1px solid var(--border)';
+                select.style.background = 'var(--bg-card)';
+                select.style.color = 'var(--text)';
+                select.style.fontSize = '0.85rem';
+                select.innerHTML = `
+                    <option value="off">Off (Auto-scale)</option>
+                    <option value="on">On (Max Limit)</option>
+                `;
+
+                select.addEventListener('change', () => {
+                    input.style.display = select.value === 'off' ? 'none' : 'block';
+                });
+
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.placeholder = graphId === 'cpu_temp' ? '°C' : 'Mbps';
+                input.style.width = '100%';
+                input.style.padding = '0.3rem';
+                input.style.borderRadius = 'var(--radius-sm)';
+                input.style.border = '1px solid var(--border)';
+                input.style.background = 'var(--bg-card)';
+                input.style.color = 'var(--text)';
+                input.style.fontSize = '0.85rem';
+
+                const saveBtn = document.createElement('button');
+                saveBtn.textContent = 'Apply';
+                saveBtn.style.width = '100%';
+                saveBtn.style.marginTop = '0.75rem';
+                saveBtn.style.padding = '0.4rem';
+                saveBtn.style.borderRadius = 'var(--radius-sm)';
+                saveBtn.style.background = 'var(--accent-blue)';
+                saveBtn.style.color = '#fff';
+                saveBtn.style.border = 'none';
+                saveBtn.style.cursor = 'pointer';
+                saveBtn.style.fontSize = '0.85rem';
+                saveBtn.style.fontWeight = '500';
+
+                dropdown.appendChild(title);
+                dropdown.appendChild(select);
+                dropdown.appendChild(input);
+                dropdown.appendChild(saveBtn);
+
+                header.appendChild(dropdown);
+                actions.appendChild(sBtn);
+
+                sBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    let prefs = {};
+                    try { prefs = JSON.parse(localStorage.getItem('kula_graphs_max') || '{}'); } catch (e) { }
+                    let cur = prefs[graphId] || (state.configMax && state.configMax[graphId]);
+                    if (!cur) cur = { mode: 'off', value: graphId === 'cpu_temp' ? 100 : 1000 };
+
+                    let uiMode = cur.mode === 'auto' ? 'on' : cur.mode;
+                    let uiVal = cur.value;
+                    if (cur.mode === 'auto') {
+                        uiVal = (typeof cur.auto === 'number' && cur.auto > 0) ? cur.auto : cur.value;
+                    }
+                    if (uiMode === 'off') {
+                        // Keep a sensible default loaded behind the scenes so if they toggle 'on' they see a valid prompt
+                        if (!uiVal) uiVal = (graphId === 'cpu_temp') ? 100 : 1000;
+                        if (cur.auto && cur.auto > 0) uiVal = cur.auto;
+                    }
+
+                    select.value = uiMode;
+                    input.value = uiVal;
+                    input.style.display = uiMode === 'off' ? 'none' : 'block';
+
+                    document.querySelectorAll('.alert-dropdown').forEach(d => {
+                        if (d !== dropdown && !d.id.includes('alert') && !d.id.includes('info')) {
+                            d.classList.add('hidden');
+                        }
+                    });
+
+                    dropdown.classList.toggle('hidden');
+                });
+
+                select.addEventListener('click', e => e.stopPropagation());
+                input.addEventListener('click', e => e.stopPropagation());
+                title.addEventListener('click', e => e.stopPropagation());
+                dropdown.addEventListener('click', e => e.stopPropagation());
+
+                saveBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    let prefs = {};
+                    try { prefs = JSON.parse(localStorage.getItem('kula_graphs_max') || '{}'); } catch (e) { }
+                    prefs[graphId] = {
+                        mode: select.value,
+                        value: parseFloat(input.value) || (graphId === 'cpu_temp' ? 100 : 1000)
+                    };
+                    localStorage.setItem('kula_graphs_max', JSON.stringify(prefs));
+                    dropdown.classList.add('hidden');
+
+                    initCharts();
+                    fetchHistory(state.timeRange);
+                });
+
+                document.addEventListener('click', (e) => {
+                    if (!dropdown.classList.contains('hidden') && !dropdown.contains(e.target) && e.target !== sBtn) {
+                        dropdown.classList.add('hidden');
+                    }
+                });
+            }
+
             const btn = document.createElement('button');
             btn.className = 'btn-icon btn-expand-chart';
             btn.title = 'Expand chart';
             btn.textContent = '🔍';
+            btn.style.marginLeft = '0';
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleExpandChart(card.id);
             });
-            header.appendChild(btn);
+
+            actions.appendChild(btn);
+
+            // Clean up any old injected buttons
+            const oldMenu = header.querySelector('.btn-expand-chart');
+            if (oldMenu) oldMenu.remove();
+
+            header.appendChild(actions);
         });
     }
 
@@ -1765,12 +1952,8 @@
             state.focusSelecting = false;
             state.focusMode = false;
             const g = document.getElementById('charts-grid');
-            g.classList.remove('focus-selecting', 'focus-active');
             document.getElementById('btn-focus').classList.remove('focus-active');
-            chartCardIds.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) { el.classList.remove('focus-selected'); if (el._focusClick) el.removeEventListener('click', el._focusClick); }
-            });
+            g.classList.remove('focus-selecting');
             removeFocusBar();
         });
     }
@@ -1783,6 +1966,7 @@
             if (el?._focusClick) { el.removeEventListener('click', el._focusClick); delete el._focusClick; }
         });
     }
+
 
     function applyStoredFocusMode() {
         if (state.focusVisible && state.focusVisible.length > 0) {
@@ -1934,8 +2118,8 @@
         // Hover-pause on chart cards
         setupHoverPause();
 
-        // Expand buttons on chart cards
-        setupExpandButtons();
+        // Expand/Settings actions on chart cards
+        setupChartActions();
 
         // Close dropdowns when clicking outside
         document.addEventListener('click', (e) => {

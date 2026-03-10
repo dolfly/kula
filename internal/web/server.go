@@ -320,6 +320,18 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"hostname":         hostname,
 		"show_system_info": s.global.ShowSystemInfo,
 		"theme":            s.global.DefaultTheme,
+		"graphs": map[string]interface{}{
+			"cpu_temp": map[string]interface{}{
+				"mode":  s.cfg.Graphs.CPUTemp.MaxMode,
+				"value": s.cfg.Graphs.CPUTemp.MaxValue,
+				"auto":  collector.DetectTjMax(),
+			},
+			"network": map[string]interface{}{
+				"mode":  s.cfg.Graphs.Network.MaxMode,
+				"value": s.cfg.Graphs.Network.MaxValue,
+				"auto":  collector.DetectLinkSpeed(),
+			},
+		},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(info); err != nil {

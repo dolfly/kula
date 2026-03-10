@@ -327,6 +327,30 @@ func discoverCPUTempPath() []sysSensor {
 	return make([]sysSensor, 0)
 }
 
+// DetectTjMax returns the maximum critical temperature in Celsius, or 0 if undetected.
+func DetectTjMax() float64 {
+	if sysTempSensors == nil {
+		sysTempSensors = discoverCPUTempPath()
+	}
+
+	var maxCrit float64
+	for _, sensor := range sysTempSensors {
+		critPath := strings.TrimSuffix(sensor.Path, "_input") + "_crit"
+		data, err := os.ReadFile(critPath)
+		if err == nil {
+			valStr := strings.TrimSpace(string(data))
+			tempMilliC := parseUint(valStr, 10, 64, "cpu.temp_crit")
+			if tempMilliC > 0 {
+				val := float64(tempMilliC) / 1000.0
+				if val > maxCrit {
+					maxCrit = val
+				}
+			}
+		}
+	}
+	return maxCrit
+}
+
 func collectMemory() MemoryStats {
 	m := parseMemInfo()
 	mem := MemoryStats{

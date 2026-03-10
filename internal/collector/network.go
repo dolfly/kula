@@ -200,3 +200,34 @@ func readTCPRaw() tcpRaw {
 	}
 	return raw
 }
+
+// DetectLinkSpeed returns the combined theoretical maximum throughput of all UP interfaces in Mbps, or 0 if undetected.
+func DetectLinkSpeed() float64 {
+	var totalSpeedMbps float64
+	entries, err := os.ReadDir(filepath.Join(sysPath, "class", "net"))
+	if err == nil {
+		for _, entry := range entries {
+			name := entry.Name()
+			if name == "lo" || strings.HasPrefix(name, "veth") || strings.HasPrefix(name, "docker") || strings.HasPrefix(name, "br-") {
+				continue
+			}
+
+			// Ensure interface is up before including its speed
+			operstate, err := os.ReadFile(filepath.Join(sysPath, "class", "net", name, "operstate"))
+			if err != nil || strings.TrimSpace(string(operstate)) != "up" {
+				continue
+			}
+
+			data, err := os.ReadFile(filepath.Join(sysPath, "class", "net", name, "speed"))
+			if err == nil {
+				val, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64)
+				// Negative values map to unknown speed in sysfs speed reports (-1)
+				if err == nil && val > 0 {
+					totalSpeedMbps += val
+				}
+			}
+		}
+	}
+
+	return totalSpeedMbps
+}

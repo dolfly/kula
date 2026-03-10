@@ -40,17 +40,28 @@ type TierConfig struct {
 }
 
 type WebConfig struct {
-	Enabled     bool       `yaml:"enabled"`
-	Listen      string     `yaml:"listen"`
-	Port        int        `yaml:"port"`
-	Auth        AuthConfig `yaml:"auth"`
-	JoinMetrics bool       `yaml:"join_metrics"`
-	Logging     LogConfig  `yaml:"logging"`
-	TrustProxy  bool       `yaml:"trust_proxy"`
-	Version     string     `yaml:"-"` // injected at runtime, not from config file
-	OS          string     `yaml:"-"`
-	Kernel      string     `yaml:"-"`
-	Arch        string     `yaml:"-"`
+	Enabled     bool        `yaml:"enabled"`
+	Listen      string      `yaml:"listen"`
+	Port        int         `yaml:"port"`
+	Auth        AuthConfig  `yaml:"auth"`
+	JoinMetrics bool        `yaml:"join_metrics"`
+	Logging     LogConfig   `yaml:"logging"`
+	TrustProxy  bool        `yaml:"trust_proxy"`
+	Graphs      GraphConfig `yaml:"graphs"`
+	Version     string      `yaml:"-"` // injected at runtime, not from config file
+	OS          string      `yaml:"-"`
+	Kernel      string      `yaml:"-"`
+	Arch        string      `yaml:"-"`
+}
+
+type GraphConfig struct {
+	CPUTemp GraphMaxConfig `yaml:"cpu_temp"`
+	Network GraphMaxConfig `yaml:"network"`
+}
+
+type GraphMaxConfig struct {
+	MaxMode  string  `yaml:"max_mode"` // "off", "on", "auto"
+	MaxValue float64 `yaml:"max_value"`
 }
 
 type LogConfig struct {
@@ -119,6 +130,10 @@ func DefaultConfig() *Config {
 			Logging: LogConfig{
 				Enabled: true,
 				Level:   "perf",
+			},
+			Graphs: GraphConfig{
+				CPUTemp: GraphMaxConfig{MaxMode: "off", MaxValue: 100},  // 100 Celsius
+				Network: GraphMaxConfig{MaxMode: "off", MaxValue: 1000}, // 1000 Mbps
 			},
 		},
 		TUI: TUIConfig{
