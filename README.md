@@ -136,13 +136,13 @@ cd kula
 
 ### Docker
 
-With persistent storage:
-
 Temporary, no persistent storage:
 
 ```bash
 docker run --rm -it --name kula --pid host --network host -v /proc:/proc:ro c0m4r/kula:latest
 ```
+
+With persistent storage:
 
 ```bash
 docker run -d --name kula --pid host --network host -v /proc:/proc:ro -v kula_data:/app/data c0m4r/kula:latest
