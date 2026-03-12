@@ -127,9 +127,9 @@ rm -f ${KULA_INSTALL}
 ### Quick
 
 ```bash
-wget https://github.com/c0m4r/kula/releases/download/0.8.2/kula-0.8.2-amd64.tar.gz
-echo "af02796a451cdd42ae6e517064adbb5e3217a09c9c2a76aa0bf64de40be5956f kula-0.8.2-amd64.tar.gz" | sha256sum -c || rm -f kula-0.8.2-amd64.tar.gz
-tar -xvf kula-0.8.2-amd64.tar.gz
+wget https://github.com/c0m4r/kula/releases/download/0.8.3/kula-0.8.3-amd64.tar.gz
+echo "f0e9c99b309d89414eec8e5a65792afbef7f1ee7c8353bfab4c72a4682979777 kula-0.8.3-amd64.tar.gz" | sha256sum -c || rm -f kula-0.8.3-amd64.tar.gz
+tar -xvf kula-0.8.3-amd64.tar.gz
 cd kula
 ./kula
 ```
@@ -152,28 +152,28 @@ docker logs -f kula
 ### Debian / Ubuntu (.deb)
 
 ```bash
-wget https://github.com/c0m4r/kula/releases/download/0.8.2/kula-0.8.2-amd64.deb
-echo "fbee7ab3d2e8d257e4005bca717526c8ce1734a9042a85c885f9f517c3f47284 kula-0.8.2-amd64.deb" | sha256sum -c || rm -f kula-0.8.2-amd64.deb
-sudo dpkg -i kula-0.8.2-amd64.deb
+wget https://github.com/c0m4r/kula/releases/download/0.8.3/kula-0.8.3-amd64.deb
+echo "53ea1623dc85a57919baf1ade5fdc512022cd2630149a93a827616a02437ed60 kula-0.8.3-amd64.deb" | sha256sum -c || rm -f kula-0.8.3-amd64.deb
+sudo dpkg -i kula-0.8.3-amd64.deb
 systemctl status kula
 ```
 
 ### RHEL / Fedora / CentOS / Rocky / Alma (.rpm)
 
 ```bash
-wget https://github.com/c0m4r/kula/releases/download/0.8.2/kula-0.8.2-x86_64.rpm
-echo "8c6dec1fdd396498e6c2d10738c91fa9e964606e5fde17c3e33a78a1a04285fb kula-0.8.2-x86_64.rpm" | sha256sum -c || rm -f kula-0.8.2-x86_64.rpm
-sudo rpm -i kula-0.8.2-x86_64.rpm
+wget https://github.com/c0m4r/kula/releases/download/0.8.3/kula-0.8.3-x86_64.rpm
+echo "9c3a4d3c53e11544a51b7161e9887b15fff7dcd334c6bb648e98f7ab8db80109 kula-0.8.3-x86_64.rpm" | sha256sum -c || rm -f kula-0.8.3-x86_64.rpm
+sudo rpm -i kula-0.8.3-x86_64.rpm
 systemctl status kula
 ```
 
 ### Arch Linux / Manjaro (AUR)
 
 ```bash
-wget https://github.com/c0m4r/kula/releases/download/0.8.2/kula-0.8.2-aur.tar.gz
-echo "d48f357ad7c9e8b223ed4c00bddd766d317958d1beed97e7a5df6b1d644a8251 kula-0.8.2-aur.tar.gz" | sha256sum -c || rm -f kula-0.8.2-aur.tar.gz
-tar -xvf kula-0.8.2-aur.tar.gz 
-cd kula-0.8.2-aur
+wget https://github.com/c0m4r/kula/releases/download/0.8.3/kula-0.8.3-aur.tar.gz
+echo "<checksum> kula-0.8.3-aur.tar.gz" | sha256sum -c || rm -f kula-0.8.3-aur.tar.gz
+tar -xvf kula-0.8.3-aur.tar.gz 
+cd kula-0.8.3-aur
 makepkg -si
 ```
 
