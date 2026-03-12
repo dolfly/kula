@@ -135,6 +135,15 @@ func gzipMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// jsonError writes a properly marshalled JSON error response, preventing injection
+// from special characters (quotes, backslashes, newlines) in error strings.
+func jsonError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	b, _ := json.Marshal(map[string]string{"error": msg})
+	_, _ = w.Write(b)
+}
+
 func securityMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b := make([]byte, 16)
@@ -295,7 +304,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) handleCurrent(w http.ResponseWriter, r *http.Request) {
 	sample := s.collector.Latest()
 	if sample == nil {
-		http.Error(w, `{"error":"no data yet"}`, http.StatusServiceUnavailable)
+		jsonError(w, "no data yet", http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -316,7 +325,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	} else {
 		to, err = time.Parse(time.RFC3339, toStr)
 		if err != nil {
-			http.Error(w, `{"error":"invalid 'to' time"}`, http.StatusBadRequest)
+			jsonError(w, "invalid 'to' time", http.StatusBadRequest)
 			return
 		}
 	}
@@ -326,17 +335,17 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	} else {
 		from, err = time.Parse(time.RFC3339, fromStr)
 		if err != nil {
-			http.Error(w, `{"error":"invalid 'from' time"}`, http.StatusBadRequest)
+			jsonError(w, "invalid 'from' time", http.StatusBadRequest)
 			return
 		}
 	}
 
 	if to.Sub(from) > 31*24*time.Hour {
-		http.Error(w, `{"error":"time range too large, max 31 days allowed"}`, http.StatusBadRequest)
+		jsonError(w, "time range too large, max 31 days allowed", http.StatusBadRequest)
 		return
 	}
 	if to.Sub(from) < 0 {
-		http.Error(w, `{"error":"time range inverted"}`, http.StatusBadRequest)
+		jsonError(w, "time range inverted", http.StatusBadRequest)
 		return
 	}
 
@@ -349,7 +358,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	startLoad := time.Now()
 	result, err := s.store.QueryRangeWithMeta(from, to, points)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
+		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	loadDuration := time.Since(startLoad)
@@ -409,14 +418,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	ip := getClientIP(r, s.cfg.TrustProxy)
 
 	if !s.auth.Limiter.Allow(ip) {
-		http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
+		jsonError(w, "too many requests", http.StatusTooManyRequests)
 		return
 	}
 
@@ -425,18 +434,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		jsonError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if !s.auth.ValidateCredentials(creds.Username, creds.Password) {
-		http.Error(w, `{"error":"invalid credentials"}`, http.StatusUnauthorized)
+		jsonError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	token, err := s.auth.CreateSession(creds.Username, ip, r.UserAgent())
 	if err != nil {
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		jsonError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -458,7 +467,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

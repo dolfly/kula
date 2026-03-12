@@ -13,6 +13,10 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 - Add missing HTTP Server Timeouts
 
+### Fixed
+
+- Prevent fmt.Sprintf with %s from producing invalid JSON
+
 ## [0.8.3] - 2026-03-12
 
 ### Added
