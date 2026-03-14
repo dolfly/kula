@@ -73,8 +73,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upg.Upgrade(w, r, nil)
 	if err != nil {
 		s.wsMu.Lock()
-		s.wsCount--
-		s.wsIPCounts[ip]--
+		if s.wsCount > 0 {
+			s.wsCount--
+		}
+		if s.wsIPCounts[ip] > 0 {
+			s.wsIPCounts[ip]--
+		}
+		if s.wsIPCounts[ip] == 0 {
+			delete(s.wsIPCounts, ip)
+		}
 		s.wsMu.Unlock()
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
@@ -91,9 +98,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	unregister := func() {
 		unregOnce.Do(func() {
 			s.wsMu.Lock()
-			s.wsCount--
-			s.wsIPCounts[ip]--
-			if s.wsIPCounts[ip] <= 0 {
+			if s.wsCount > 0 {
+				s.wsCount--
+			}
+			if s.wsIPCounts[ip] > 0 {
+				s.wsIPCounts[ip]--
+			}
+			if s.wsIPCounts[ip] == 0 {
 				delete(s.wsIPCounts, ip)
 			}
 			s.wsMu.Unlock()
