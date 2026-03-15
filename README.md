@@ -179,7 +179,7 @@ journalctl -f -t kula
 
 ```bash
 wget https://github.com/c0m4r/kula/releases/download/0.9.2/kula-0.9.2-aur.tar.gz
-echo "<checksum> kula-0.9.2-aur.tar.gz" | sha256sum -c || rm -f kula-0.9.2-aur.tar.gz
+echo "7caffabc6a3f80f0f29ad891e3cf0a73d1deab0e3e31ee13077acbcaec11ee74 kula-0.9.2-aur.tar.gz" | sha256sum -c || rm -f kula-0.9.2-aur.tar.gz
 tar -xvf kula-0.9.2-aur.tar.gz
 cd kula-0.9.2-aur
 makepkg -si
