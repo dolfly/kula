@@ -75,6 +75,7 @@ type model struct {
 	osName         string
 	kernelVersion  string
 	cpuArch        string
+	version        string
 	showSystemInfo bool
 
 	activeTab tabID
@@ -98,7 +99,7 @@ type model struct {
 func RunHeadless(
 	coll *collector.Collector,
 	refreshRate time.Duration,
-	osName, kernelVersion, cpuArch string,
+	osName, kernelVersion, cpuArch, version string,
 	showSystemInfo bool,
 ) error {
 	sample := coll.Collect()
@@ -108,6 +109,7 @@ func RunHeadless(
 		osName:         osName,
 		kernelVersion:  kernelVersion,
 		cpuArch:        cpuArch,
+		version:        version,
 		showSystemInfo: showSystemInfo,
 		sample:         sample,
 		now:            time.Now(),

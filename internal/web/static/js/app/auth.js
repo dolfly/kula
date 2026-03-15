@@ -41,6 +41,12 @@ function fetchConfig() {
                 const versionEl = document.getElementById('kula-version');
                 if (versionEl) versionEl.textContent = 'v' + cfg.version;
             }
+            if (cfg.show_version === false) {
+                ['kula-version', 'footer-sep'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.classList.add('hidden');
+                });
+            }
             if (cfg.show_system_info === false) {
                 ['row-os', 'row-kernel', 'row-arch'].forEach(id => {
                     const el = document.getElementById(id);
@@ -81,10 +87,11 @@ function fetchConfig() {
                 initCharts(); // reload boundaries immediately on bootstrap/login
             }
 
+            const versionStr = cfg.show_version === false ? '' : ' v' + (cfg.version || '0.0.0');
             console.log(
-                '%c K U L A %c v' + (cfg.version || '0.0.0') + ' %c Welcome to your monitoring dashboard! ',
+                '%c K U L A %c' + versionStr + ' %c Welcome to your monitoring dashboard! ',
                 'background: #0e1f2fff; color: #fff; border-radius: 3px 0 0 3px; padding: 3px 6px; font-weight: bold; font-family: sans-serif;',
-                'background: #0b406eff; color: #fff; border-radius: 0 3px 3px 0; padding: 3px 6px; font-weight: bold; font-family: sans-serif;',
+                'background: #0b406eff; color: #fff; border-radius: 0 3px 3px 0; padding: 3px ' + (cfg.show_version === false ? '0' : '6px') + '; font-weight: bold; font-family: sans-serif;',
                 'color: #000000ff; font-weight: 500; font-family: sans-serif; margin-left: 10px;'
             );
         })

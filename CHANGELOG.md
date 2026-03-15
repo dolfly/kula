@@ -13,6 +13,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 - GPU monitoring
 - New env var: KULA_LOGLEVEL for log level override
+- Configurable version display
 
 ### Changed
 

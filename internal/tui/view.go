@@ -106,11 +106,12 @@ func (m model) renderFooter() string {
 		parts = append(parts, sFooterKey.Render(h.key)+" "+sFooterHint.Render(h.desc))
 	}
 	left := sep + strings.Join(parts, sep)
-	padW := m.width - lipgloss.Width(left)
+	right := sMuted.Render("v"+m.version) + " "
+	padW := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if padW > 0 {
 		left += sFooterBg.Render(strings.Repeat(" ", padW))
 	}
-	return left
+	return left + right
 }
 
 // ── Content dispatcher ────────────────────────────────────────────────────────

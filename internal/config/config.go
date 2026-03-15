@@ -22,6 +22,7 @@ type Config struct {
 type GlobalConfig struct {
 	Hostname       string `yaml:"hostname"`
 	ShowSystemInfo bool   `yaml:"show_system_info"`
+	ShowVersion    bool   `yaml:"show_version"`
 	DefaultTheme   string `yaml:"default_theme"`
 }
 
@@ -115,6 +116,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Global: GlobalConfig{
 			ShowSystemInfo: true,
+			ShowVersion:    true,
 			DefaultTheme:   "dark",
 		},
 		Collection: CollectionConfig{

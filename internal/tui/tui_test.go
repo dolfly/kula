@@ -98,6 +98,7 @@ func newTestModel(w, h int) model {
 		osName:         "Test Linux",
 		kernelVersion:  "6.1.0-test",
 		cpuArch:        "amd64",
+		version:        "1.0.0",
 		showSystemInfo: true,
 		activeTab:      tabOverview,
 		histCPU:        newRing(),

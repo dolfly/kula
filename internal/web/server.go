@@ -424,13 +424,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	info := map[string]interface{}{
 		"auth_enabled":     s.cfg.Auth.Enabled,
-		"version":          s.cfg.Version,
 		"join_metrics":     s.cfg.JoinMetrics,
 		"os":               s.cfg.OS,
 		"kernel":           s.cfg.Kernel,
 		"arch":             s.cfg.Arch,
 		"hostname":         hostname,
 		"show_system_info": s.global.ShowSystemInfo,
+		"show_version":     s.global.ShowVersion,
 		"theme":            s.global.DefaultTheme,
 		"aggregation":      s.cfg.DefaultAggregation,
 		"graphs": map[string]interface{}{
@@ -450,6 +450,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				"auto":  s.collector.DetectLinkSpeed(),
 			},
 		},
+	}
+
+	if s.global.ShowVersion {
+		info["version"] = s.cfg.Version
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(info); err != nil {
