@@ -66,7 +66,9 @@ function toggleFocusMode() {
         chartCardIds.forEach(id => {
             const el = document.getElementById(id);
             if (el) {
-                el.classList.toggle('focus-visible', selected.includes(id));
+                const isSelected = selected.includes(id);
+                const isHidden = el.classList.contains('hidden');
+                el.classList.toggle('focus-visible', isSelected && !isHidden);
                 el.classList.remove('focus-selected');
             }
         });
@@ -104,7 +106,7 @@ function toggleFocusMode() {
     // Click handler for selection
     chartCardIds.forEach(id => {
         const el = document.getElementById(id);
-        if (el) {
+        if (el && !el.classList.contains('hidden')) {
             el._focusClick = () => el.classList.toggle('focus-selected');
             el.addEventListener('click', el._focusClick);
         }
@@ -135,7 +137,12 @@ function removeFocusBar() {
     if (bar) bar.remove();
     chartCardIds.forEach(id => {
         const el = document.getElementById(id);
-        if (el?._focusClick) { el.removeEventListener('click', el._focusClick); delete el._focusClick; }
+        if (el) {
+            if (el._focusClick) {
+                el.removeEventListener('click', el._focusClick);
+                delete el._focusClick;
+            }
+        }
     });
 }
 
@@ -147,7 +154,12 @@ function applyStoredFocusMode() {
         document.getElementById('btn-focus').classList.add('focus-active');
         chartCardIds.forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.classList.toggle('focus-visible', state.focusVisible.includes(id));
+            if (el) {
+                const isSelected = state.focusVisible.includes(id);
+                const isHidden = el.classList.contains('hidden');
+                // Only show if selected AND not logically hidden by telemetry
+                el.classList.toggle('focus-visible', isSelected && !isHidden);
+            }
         });
     }
 }

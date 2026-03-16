@@ -277,7 +277,7 @@ function addSampleToCharts(item, ts) {
             } else {
                 document.getElementById('card-gpu-load')?.classList.add('hidden');
             }
-            if (state.charts.vram && g.vram_total > 0) {
+            if (state.charts.vram && g.vram_total > 0 && g.vram_used > 0) {
                 document.getElementById('card-vram')?.classList.remove('hidden');
                 state.charts.vram.data.datasets[0].data.push(point(g.vram_used || 0));
                 state.charts.vram.options.scales.y.max = g.vram_total > 0 ? g.vram_total : undefined;
@@ -297,10 +297,18 @@ function addSampleToCharts(item, ts) {
             document.getElementById('card-vram')?.classList.add('hidden');
             document.getElementById('card-gpu-temp')?.classList.add('hidden');
         }
+
+        // If in focus mode, re-apply visibility based on the new .hidden state
+        if (state.focusMode && typeof applyStoredFocusMode === 'function') {
+            applyStoredFocusMode();
+        }
     } else {
         document.getElementById('card-gpu-load')?.classList.add('hidden');
         document.getElementById('card-vram')?.classList.add('hidden');
         document.getElementById('card-gpu-temp')?.classList.add('hidden');
+        if (state.focusMode && typeof applyStoredFocusMode === 'function') {
+            applyStoredFocusMode();
+        }
     }
 }
 

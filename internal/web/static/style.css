@@ -843,7 +843,7 @@ body.light-mode .time-input {
     display: block !important;
 }
 
-.focus-selecting .chart-card {
+.focus-selecting .chart-card:not(.hidden) {
     display: block !important;
     cursor: pointer;
     position: relative;
