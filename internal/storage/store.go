@@ -407,8 +407,10 @@ func (s *Store) QueryLatest() (*AggregatedSample, error) {
 	}
 
 	// Fast path: in-memory cache is always kept current by WriteSample.
+	// Return a shallow copy so callers cannot mutate the cached entry.
 	if s.latestCache != nil {
-		return s.latestCache, nil
+		cp := *s.latestCache
+		return &cp, nil
 	}
 
 	// Cold path: only reached on an empty store where no sample has been
@@ -417,15 +419,15 @@ func (s *Store) QueryLatest() (*AggregatedSample, error) {
 }
 
 func (s *Store) Close() error {
+	var firstErr error
 	for _, t := range s.tiers {
-		if err := t.Flush(); err != nil {
-			return err
-		}
-		if err := t.Close(); err != nil {
-			return err
+		// Tier.Close already calls writeHeader; Flush is redundant.
+		// Accumulate errors so all tiers are closed even if one fails.
+		if err := t.Close(); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 // aggregateSamples creates an aggregated sample from raw samples.
@@ -605,6 +607,21 @@ func (s *Store) aggregateSamples(samples []*collector.Sample, dur time.Duration)
 	last := samples[len(samples)-1]
 
 	avg := *last
+	// Deep-copy the three slices we mutate in-place below. The shallow struct
+	// copy shares their backing arrays with last, so in-place element writes
+	// would silently corrupt the original sample still held by tier 0.
+	if len(last.CPU.Sensors) > 0 {
+		avg.CPU.Sensors = make([]collector.CPUTempSensor, len(last.CPU.Sensors))
+		copy(avg.CPU.Sensors, last.CPU.Sensors)
+	}
+	if len(last.Network.Interfaces) > 0 {
+		avg.Network.Interfaces = make([]collector.NetInterface, len(last.Network.Interfaces))
+		copy(avg.Network.Interfaces, last.Network.Interfaces)
+	}
+	if len(last.Disks.Devices) > 0 {
+		avg.Disks.Devices = make([]collector.DiskDevice, len(last.Disks.Devices))
+		copy(avg.Disks.Devices, last.Disks.Devices)
+	}
 
 	var minS, maxS *collector.Sample
 

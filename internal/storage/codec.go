@@ -742,18 +742,20 @@ func extractTimestamp(data []byte) (time.Time, error) {
 
 // ---- Version dispatch -------------------------------------------------------
 
-// encodeSampleV always encodes using the binary v2 codec.
+// encodeSampleV encodes a using the binary v2 codec and prepends the
+// recordKindBinary byte so the returned slice matches the on-disk payload
+// format exactly: [kind][preamble][fixed][variable...].
+// This keeps the allocation count in Write at one (encodeSample's output copy)
+// rather than two (output copy + kind-byte prefix copy).
 func encodeSampleV(a *AggregatedSample) ([]byte, error) {
-	return encodeSample(a)
-}
-
-// decodeSampleV decodes a payload using the codec identified by ver.
-// ver <= 1 uses the legacy JSON path; ver >= 2 uses the binary path.
-func decodeSampleV(data []byte, ver uint64) (*AggregatedSample, error) {
-	if ver <= 1 {
-		return decodeSampleJSON(data)
+	payload, err := encodeSample(a)
+	if err != nil {
+		return nil, err
 	}
-	return decodeSample(data)
+	out := make([]byte, 1+len(payload))
+	out[0] = recordKindBinary
+	copy(out[1:], payload)
+	return out, nil
 }
 
 // decodeSampleJSON is the legacy JSON decoder retained for transparent

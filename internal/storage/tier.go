@@ -109,6 +109,9 @@ func (t *Tier) readHeader() error {
 	}
 	t.codecVer = v
 	t.maxData = int64(binary.LittleEndian.Uint64(buf[16:24]))
+	if t.maxData == 0 {
+		return fmt.Errorf("invalid header: maxData is zero")
+	}
 	t.writeOff = int64(binary.LittleEndian.Uint64(buf[24:32]))
 	t.count = binary.LittleEndian.Uint64(buf[32:40])
 
@@ -153,16 +156,12 @@ func (t *Tier) writeHeader() error {
 
 // Write stores a sample in the ring buffer.
 func (t *Tier) Write(s *AggregatedSample) error {
-	payload, err := encodeSampleV(s)
+	// encodeSampleV returns [kind][preamble][fixed][variable...] — the full
+	// on-disk payload including the recordKindBinary byte at [0].
+	data, err := encodeSampleV(s)
 	if err != nil {
 		return err
 	}
-
-	// Prepend the record kind byte so readers can identify the format
-	// deterministically without inspecting timestamp bytes.
-	data := make([]byte, 1+len(payload))
-	data[0] = recordKindBinary
-	copy(data[1:], payload)
 
 	recordLen := 4 + len(data) // length prefix + data
 	if int64(recordLen) > t.maxData {
@@ -177,18 +176,17 @@ func (t *Tier) Write(s *AggregatedSample) error {
 		// Write a zero sentinel to mark end-of-segment so ReadRange
 		// knows there are no more records in this tail region.
 		if t.writeOff+4 <= t.maxData {
-			sentinel := make([]byte, 4)
-			// sentinel is already all zeros (dataLen == 0)
-			_, _ = t.file.WriteAt(sentinel, headerSize+t.writeOff)
+			var sentinel [4]byte // zero-value sentinel (dataLen == 0)
+			_, _ = t.file.WriteAt(sentinel[:], headerSize+t.writeOff)
 		}
 		t.writeOff = 0
 		t.wrapped = true
 	}
-	lenBuf := make([]byte, 4)
-	binary.LittleEndian.PutUint32(lenBuf, uint32(len(data)))
+	var lenBuf [4]byte
+	binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(data)))
 
 	fileOff := headerSize + t.writeOff
-	if _, err := t.file.WriteAt(lenBuf, fileOff); err != nil {
+	if _, err := t.file.WriteAt(lenBuf[:], fileOff); err != nil {
 		return err
 	}
 	if _, err := t.file.WriteAt(data, fileOff+4); err != nil {

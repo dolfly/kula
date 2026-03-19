@@ -211,6 +211,43 @@ func TestExtractTimestamp_TooShort(t *testing.T) {
 	}
 }
 
+// TestExtractTimestamp_KindByte exercises the recordKindBinary fast path:
+// the on-disk format written by encodeSampleV has the kind byte at [0] and
+// the timestamp at [1:9]. This is the path taken on every real disk read.
+func TestExtractTimestamp_KindByte(t *testing.T) {
+	ts := time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC)
+	s := &AggregatedSample{
+		Timestamp: ts,
+		Duration:  time.Second,
+		Data:      &collector.Sample{Timestamp: ts},
+	}
+
+	disk, err := encodeSampleV(s)
+	if err != nil {
+		t.Fatalf("encodeSampleV: %v", err)
+	}
+	if disk[0] != recordKindBinary {
+		t.Fatalf("disk[0] = %02x, want recordKindBinary", disk[0])
+	}
+
+	got, err := extractTimestamp(disk)
+	if err != nil {
+		t.Fatalf("extractTimestamp(kind-byte payload): %v", err)
+	}
+	if !got.Equal(ts) {
+		t.Errorf("extractTimestamp = %v, want %v", got, ts)
+	}
+
+	// Ensure it agrees with a full decode after stripping the kind byte.
+	full, err := decodeSample(disk[1:])
+	if err != nil {
+		t.Fatalf("decodeSample(disk[1:]): %v", err)
+	}
+	if !got.Equal(full.Timestamp) {
+		t.Errorf("extractTimestamp %v != decodeSample %v", got, full.Timestamp)
+	}
+}
+
 func TestExtractTimestamp_Zero(t *testing.T) {
 	// 8 zero bytes is a valid payload — decodes to time.Unix(0, 0).
 	got, err := extractTimestamp(make([]byte, 8))
@@ -246,8 +283,9 @@ func TestExtractTimestamp_MatchesFullDecode(t *testing.T) {
 
 // ---- TestTimestampOffset ----------------------------------------------------
 
-// TestTimestampOffset verifies the timestamp is always at bytes [0:8] of the
-// binary payload — the guarantee that makes readTimestampAt a single ReadAt call.
+// TestTimestampOffset verifies the timestamp layout in both payload formats:
+//   - encodeSample()  (raw, no kind byte): timestamp at payload[0:8]
+//   - encodeSampleV() (on-disk format):   kind byte at [0], timestamp at [1:9]
 func TestTimestampOffset(t *testing.T) {
 	ts := time.Date(2026, 3, 19, 12, 0, 0, 999999999, time.UTC)
 	s := &AggregatedSample{
@@ -255,16 +293,34 @@ func TestTimestampOffset(t *testing.T) {
 		Duration:  time.Second,
 		Data:      &collector.Sample{Timestamp: ts},
 	}
-	data, err := encodeSample(s)
+
+	// Raw payload (encodeSample): timestamp at [0:8], no kind byte.
+	raw, err := encodeSample(s)
 	if err != nil {
 		t.Fatalf("encodeSample: %v", err)
 	}
-	if len(data) < 8 {
-		t.Fatalf("encoded payload too short: %d", len(data))
+	if len(raw) < 8 {
+		t.Fatalf("raw payload too short: %d", len(raw))
 	}
-	ns := int64(binary.LittleEndian.Uint64(data[0:8]))
+	ns := int64(binary.LittleEndian.Uint64(raw[0:8]))
 	if ns != ts.UnixNano() {
-		t.Errorf("payload[0:8] = %d, want %d (ts.UnixNano)", ns, ts.UnixNano())
+		t.Errorf("raw payload[0:8] = %d, want %d (ts.UnixNano)", ns, ts.UnixNano())
+	}
+
+	// On-disk payload (encodeSampleV): kind byte at [0], timestamp at [1:9].
+	disk, err := encodeSampleV(s)
+	if err != nil {
+		t.Fatalf("encodeSampleV: %v", err)
+	}
+	if len(disk) < 9 {
+		t.Fatalf("disk payload too short: %d", len(disk))
+	}
+	if disk[0] != recordKindBinary {
+		t.Errorf("disk[0] = %02x, want recordKindBinary (%02x)", disk[0], recordKindBinary)
+	}
+	nsOnDisk := int64(binary.LittleEndian.Uint64(disk[1:9]))
+	if nsOnDisk != ts.UnixNano() {
+		t.Errorf("disk payload[1:9] = %d, want %d (ts.UnixNano)", nsOnDisk, ts.UnixNano())
 	}
 }
 
@@ -311,10 +367,10 @@ func TestBinaryMigration(t *testing.T) {
 		t.Fatalf("json.Marshal: %v", err)
 	}
 
-	// Decode via the version-dispatch path with ver=1 → must use JSON path
-	decoded, err := decodeSampleV(jsonPayload, 1)
+	// ver=1 records use the JSON path; call the decoder directly.
+	decoded, err := decodeSampleJSON(jsonPayload)
 	if err != nil {
-		t.Fatalf("decodeSampleV(v1): %v", err)
+		t.Fatalf("decodeSampleJSON: %v", err)
 	}
 	if decoded.Data == nil {
 		t.Fatal("decoded.Data is nil")
