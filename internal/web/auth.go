@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"kula-szpiegula/internal/config"
+	"kula/internal/config"
 
 	"golang.org/x/crypto/argon2"
 )

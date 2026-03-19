@@ -1,8 +1,8 @@
 package storage
 
 import (
-	"kula-szpiegula/internal/collector"
-	"kula-szpiegula/internal/config"
+	"kula/internal/collector"
+	"kula/internal/config"
 	"os"
 	"sync"
 	"testing"

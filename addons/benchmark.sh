@@ -130,11 +130,11 @@ pretty_run() {
 }
 
 # ── banner ────────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}${CYAN}  kula-szpiegula — Storage Engine Benchmark Suite${RESET}"
-echo -e "${DIM}  benchtime=${BENCHTIME}   pkg=kula-szpiegula/internal/storage${RESET}"
+echo -e "\n${BOLD}${CYAN}  kula — Storage Engine Benchmark Suite${RESET}"
+echo -e "${DIM}  benchtime=${BENCHTIME}   pkg=kula/internal/storage${RESET}"
 echo -e "${DIM}  $(go version)${RESET}"
 
-PKG="kula-szpiegula/internal/storage"
+PKG="kula/internal/storage"
 
 # ═══════════════════════════════════════════════════════════════════
 # 1. CODEC

@@ -7,8 +7,8 @@ package web
 		"testing"
 		"time"
 
-		"kula-szpiegula/internal/collector"
-		"kula-szpiegula/internal/config"
+		"kula/internal/collector"
+		"kula/internal/config"
 		"github.com/gorilla/websocket"
 	)
 

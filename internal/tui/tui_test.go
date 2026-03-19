@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"kula-szpiegula/internal/collector"
+	"kula/internal/collector"
 )
 
 // ── Test helpers ──────────────────────────────────────────────────────────────

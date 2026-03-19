@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"kula-szpiegula/internal/collector"
-	"kula-szpiegula/internal/config"
-	"kula-szpiegula/internal/storage"
+	"kula/internal/collector"
+	"kula/internal/config"
+	"kula/internal/storage"
 )
 
 // newTestStoreWithSample creates a temporary store, writes one sample, and

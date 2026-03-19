@@ -1,7 +1,7 @@
 package collector
 
 import (
-	"kula-szpiegula/internal/config"
+	"kula/internal/config"
 	"log"
 	"sync"
 	"time"

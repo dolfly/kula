@@ -1,7 +1,7 @@
 package web
 
 import (
-	"kula-szpiegula/internal/config"
+	"kula/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"os"

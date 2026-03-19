@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"kula-szpiegula/internal/collector"
+	"kula/internal/collector"
 	"math"
 	"sync"
 	"time"
@@ -19,6 +19,13 @@ const (
 
 // fixedBlockSize is the size in bytes of the encoded fixed scalar block.
 const fixedBlockSize = 218
+
+// recordKindBinary is the one-byte tag written as the first byte of every new
+// binary payload (after the 4-byte length prefix). Legacy JSON records start
+// with '{' (0x7B) and legacy binary records written before this tag was
+// introduced have no kind byte. This makes new binary records fully
+// deterministic to identify without peeking at timestamp bytes.
+const recordKindBinary = byte(0x02)
 
 // AggregatedSample holds a time-aggregated metric sample.
 // For tier 0 (1s), this is just a wrapper around the raw sample.
@@ -52,26 +59,29 @@ func getF32(b []byte) float64 {
 
 // ---- Length-prefixed string helpers -----------------------------------------
 
-// appendStr appends a uint8-length-prefixed UTF-8 string (capped at 255 bytes).
-func appendStr(buf []byte, s string) []byte {
+// appendStr appends a uint8-length-prefixed UTF-8 string. Returns an error if
+// the string exceeds the 255-byte on-disk limit; callers must not truncate
+// silently, as that would misrepresent stored data.
+func appendStr(buf []byte, s string) ([]byte, error) {
 	n := len(s)
 	if n > 255 {
-		n = 255
+		return buf, fmt.Errorf("string exceeds 255-byte storage limit (%d bytes)", n)
 	}
 	buf = append(buf, byte(n))
-	return append(buf, s[:n]...)
+	return append(buf, s[:n]...), nil
 }
 
-// getStr reads a uint8-length-prefixed string. Returns the string and bytes consumed.
-func getStr(buf []byte) (string, int) {
+// getStr reads a uint8-length-prefixed string. Returns the string, bytes consumed, and an error
+// if the buffer is too short to hold the declared string length.
+func getStr(buf []byte) (string, int, error) {
 	if len(buf) == 0 {
-		return "", 0
+		return "", 0, fmt.Errorf("empty buffer for string")
 	}
 	n := int(buf[0])
 	if n > len(buf)-1 {
-		n = len(buf) - 1
+		return "", 0, fmt.Errorf("string truncated: claims %d bytes, have %d", n, len(buf)-1)
 	}
-	return string(buf[1 : 1+n]), 1 + n
+	return string(buf[1 : 1+n]), 1 + n, nil
 }
 
 // ---- Append helpers ---------------------------------------------------------
@@ -105,17 +115,30 @@ func encodeSample(a *AggregatedSample) ([]byte, error) {
 	buf := (*ptr)[:0]
 
 	buf = appendPreamble(buf, a)
+	var err error
 	if a.Data != nil {
 		buf = appendFixed(buf, a.Data)
-		buf = appendVariable(buf, a.Data)
+		if buf, err = appendVariable(buf, a.Data); err != nil {
+			*ptr = buf
+			encPool.Put(ptr)
+			return nil, fmt.Errorf("encode data: %w", err)
+		}
 	}
 	if a.Min != nil {
 		buf = appendFixed(buf, a.Min)
-		buf = appendVariable(buf, a.Min)
+		if buf, err = appendVariable(buf, a.Min); err != nil {
+			*ptr = buf
+			encPool.Put(ptr)
+			return nil, fmt.Errorf("encode min: %w", err)
+		}
 	}
 	if a.Max != nil {
 		buf = appendFixed(buf, a.Max)
-		buf = appendVariable(buf, a.Max)
+		if buf, err = appendVariable(buf, a.Max); err != nil {
+			*ptr = buf
+			encPool.Put(ptr)
+			return nil, fmt.Errorf("encode max: %w", err)
+		}
 	}
 
 	out := make([]byte, len(buf))
@@ -244,7 +267,7 @@ func appendFixed(buf []byte, s *collector.Sample) []byte {
 
 // appendVariable encodes the variable-length sections of a sample:
 // network interfaces, CPU sensors, disk devices, filesystems, system strings, GPU entries.
-func appendVariable(buf []byte, s *collector.Sample) []byte {
+func appendVariable(buf []byte, s *collector.Sample) ([]byte, error) {
 	if s == nil {
 		// Write zero counts for all 5 array sections.
 		for i := 0; i < 5; i++ {
@@ -252,13 +275,17 @@ func appendVariable(buf []byte, s *collector.Sample) []byte {
 		}
 		// Empty system strings (hostname, clock_source).
 		buf = append(buf, 0, 0)
-		return buf
+		return buf, nil
 	}
+
+	var err error
 
 	// Network interfaces
 	buf = appendUint16(buf, uint16(len(s.Network.Interfaces)))
 	for _, iface := range s.Network.Interfaces {
-		buf = appendStr(buf, iface.Name)
+		if buf, err = appendStr(buf, iface.Name); err != nil {
+			return buf, fmt.Errorf("iface name: %w", err)
+		}
 		buf = appendF32(buf, iface.RxMbps)
 		buf = appendF32(buf, iface.TxMbps)
 		buf = appendF32(buf, iface.RxPPS)
@@ -276,14 +303,18 @@ func appendVariable(buf []byte, s *collector.Sample) []byte {
 	// CPU temperature sensors
 	buf = appendUint16(buf, uint16(len(s.CPU.Sensors)))
 	for _, sensor := range s.CPU.Sensors {
-		buf = appendStr(buf, sensor.Name)
+		if buf, err = appendStr(buf, sensor.Name); err != nil {
+			return buf, fmt.Errorf("cpu sensor name: %w", err)
+		}
 		buf = appendF32(buf, sensor.Value)
 	}
 
 	// Disk devices
 	buf = appendUint16(buf, uint16(len(s.Disks.Devices)))
 	for _, dev := range s.Disks.Devices {
-		buf = appendStr(buf, dev.Name)
+		if buf, err = appendStr(buf, dev.Name); err != nil {
+			return buf, fmt.Errorf("disk name: %w", err)
+		}
 		buf = appendF32(buf, dev.ReadsPerSec)
 		buf = appendF32(buf, dev.WritesPerSec)
 		buf = appendF32(buf, dev.ReadBytesPS)
@@ -292,7 +323,9 @@ func appendVariable(buf []byte, s *collector.Sample) []byte {
 		buf = appendF32(buf, dev.Temperature)
 		buf = appendUint16(buf, uint16(len(dev.Sensors)))
 		for _, ts := range dev.Sensors {
-			buf = appendStr(buf, ts.Name)
+			if buf, err = appendStr(buf, ts.Name); err != nil {
+				return buf, fmt.Errorf("disk sensor name: %w", err)
+			}
 			buf = appendF32(buf, ts.Value)
 		}
 	}
@@ -300,9 +333,15 @@ func appendVariable(buf []byte, s *collector.Sample) []byte {
 	// Filesystems
 	buf = appendUint16(buf, uint16(len(s.Disks.FileSystems)))
 	for _, fs := range s.Disks.FileSystems {
-		buf = appendStr(buf, fs.Device)
-		buf = appendStr(buf, fs.MountPoint)
-		buf = appendStr(buf, fs.FSType)
+		if buf, err = appendStr(buf, fs.Device); err != nil {
+			return buf, fmt.Errorf("fs device: %w", err)
+		}
+		if buf, err = appendStr(buf, fs.MountPoint); err != nil {
+			return buf, fmt.Errorf("fs mountpoint: %w", err)
+		}
+		if buf, err = appendStr(buf, fs.FSType); err != nil {
+			return buf, fmt.Errorf("fs type: %w", err)
+		}
 		buf = appendUint64(buf, fs.Total)
 		buf = appendUint64(buf, fs.Used)
 		buf = appendUint64(buf, fs.Available)
@@ -310,15 +349,27 @@ func appendVariable(buf []byte, s *collector.Sample) []byte {
 	}
 
 	// System strings
-	buf = appendStr(buf, s.System.Hostname)
-	buf = appendStr(buf, s.System.ClockSource)
+	if buf, err = appendStr(buf, s.System.Hostname); err != nil {
+		return buf, fmt.Errorf("hostname: %w", err)
+	}
+	if buf, err = appendStr(buf, s.System.ClockSource); err != nil {
+		return buf, fmt.Errorf("clock source: %w", err)
+	}
 
-	// GPU entries
-	buf = appendUint16(buf, uint16(len(s.GPU)))
-	for _, g := range s.GPU {
+	// GPU entries — count is uint16-encoded; cap to avoid silent truncation.
+	gpuCount := len(s.GPU)
+	if gpuCount > 65535 {
+		gpuCount = 65535
+	}
+	buf = appendUint16(buf, uint16(gpuCount))
+	for _, g := range s.GPU[:gpuCount] {
 		buf = appendUint16(buf, uint16(g.Index))
-		buf = appendStr(buf, g.Name)
-		buf = appendStr(buf, g.Driver)
+		if buf, err = appendStr(buf, g.Name); err != nil {
+			return buf, fmt.Errorf("gpu name: %w", err)
+		}
+		if buf, err = appendStr(buf, g.Driver); err != nil {
+			return buf, fmt.Errorf("gpu driver: %w", err)
+		}
 		buf = appendF32(buf, g.Temperature)
 		buf = appendUint64(buf, g.VRAMUsed)
 		buf = appendUint64(buf, g.VRAMTotal)
@@ -327,7 +378,7 @@ func appendVariable(buf []byte, s *collector.Sample) []byte {
 		buf = appendF32(buf, g.PowerW)
 	}
 
-	return buf
+	return buf, nil
 }
 
 // ---- Decoder ----------------------------------------------------------------
@@ -479,10 +530,13 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 	s.Network.Interfaces = make([]collector.NetInterface, 0, numIfaces)
 	for i := 0; i < numIfaces; i++ {
 		var iface collector.NetInterface
-		name, n := getStr(data[off:])
+		name, n, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("iface name: %w", err)
+		}
 		off += n
 		iface.Name = name
-		if err := need(4*4+8*6, "iface fields"); err != nil {
+		if err := need(4*4+8*8, "iface fields"); err != nil {
 			return off, err
 		}
 		iface.RxMbps = getF32(data[off:]); off += 4
@@ -508,7 +562,10 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 	off += 2
 	s.CPU.Sensors = make([]collector.CPUTempSensor, 0, numSensors)
 	for i := 0; i < numSensors; i++ {
-		name, n := getStr(data[off:])
+		name, n, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("cpu sensor name: %w", err)
+		}
 		off += n
 		if err := need(4, "cpu sensor value"); err != nil {
 			return off, err
@@ -526,7 +583,10 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 	s.Disks.Devices = make([]collector.DiskDevice, 0, numDisks)
 	for i := 0; i < numDisks; i++ {
 		var dev collector.DiskDevice
-		name, n := getStr(data[off:])
+		name, n, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("disk name: %w", err)
+		}
 		off += n
 		dev.Name = name
 		if err := need(6*4, "disk scalar fields"); err != nil {
@@ -545,7 +605,10 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 		off += 2
 		dev.Sensors = make([]collector.DiskTempSensor, 0, numTS)
 		for j := 0; j < numTS; j++ {
-			tsName, tn := getStr(data[off:])
+			tsName, tn, err := getStr(data[off:])
+			if err != nil {
+				return off, fmt.Errorf("disk sensor name: %w", err)
+			}
 			off += tn
 			if err := need(4, "disk sensor value"); err != nil {
 				return off, err
@@ -565,9 +628,24 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 	s.Disks.FileSystems = make([]collector.FileSystemInfo, 0, numFS)
 	for i := 0; i < numFS; i++ {
 		var fs collector.FileSystemInfo
-		dev, n := getStr(data[off:]); off += n; fs.Device = dev
-		mp, n2 := getStr(data[off:]); off += n2; fs.MountPoint = mp
-		ft, n3 := getStr(data[off:]); off += n3; fs.FSType = ft
+		dev, n, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("fs device: %w", err)
+		}
+		off += n
+		fs.Device = dev
+		mp, n2, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("fs mountpoint: %w", err)
+		}
+		off += n2
+		fs.MountPoint = mp
+		ft, n3, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("fs type: %w", err)
+		}
+		off += n3
+		fs.FSType = ft
 		if err := need(3*8+4, "fs numeric fields"); err != nil {
 			return off, err
 		}
@@ -579,8 +657,18 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 	}
 
 	// System strings
-	hostname, n := getStr(data[off:]); off += n; s.System.Hostname = hostname
-	clockSrc, n2 := getStr(data[off:]); off += n2; s.System.ClockSource = clockSrc
+	hostname, n, err := getStr(data[off:])
+	if err != nil {
+		return off, fmt.Errorf("hostname: %w", err)
+	}
+	off += n
+	s.System.Hostname = hostname
+	clockSrc, n2, err := getStr(data[off:])
+	if err != nil {
+		return off, fmt.Errorf("clock source: %w", err)
+	}
+	off += n2
+	s.System.ClockSource = clockSrc
 
 	// GPU entries
 	if len(data)-off < 2 {
@@ -596,8 +684,18 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 			return off, err
 		}
 		g.Index = int(binary.LittleEndian.Uint16(data[off:])); off += 2
-		name, gn := getStr(data[off:]); off += gn; g.Name = name
-		drv, dn := getStr(data[off:]); off += dn; g.Driver = drv
+		name, gn, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("gpu name: %w", err)
+		}
+		off += gn
+		g.Name = name
+		drv, dn, err := getStr(data[off:])
+		if err != nil {
+			return off, fmt.Errorf("gpu driver: %w", err)
+		}
+		off += dn
+		g.Driver = drv
 		if err := need(4+8+8+4+4+4, "gpu scalar fields"); err != nil {
 			return off, err
 		}
@@ -615,14 +713,31 @@ func decodeVariable(data []byte, s *collector.Sample) (int, error) {
 
 // ---- Timestamp extraction ---------------------------------------------------
 
-// extractTimestamp reads the timestamp from the first 8 bytes of a binary v2
-// payload. The timestamp is always at a fixed offset, so no scanning is needed.
-// data must NOT include the 4-byte length prefix.
+// extractTimestamp reads the timestamp from a binary payload (no length prefix).
+// Three record formats are handled:
+//
+//   - recordKindBinary (0x02): kind-tagged binary — timestamp at data[1:9]
+//   - '{' (0x7B):              legacy JSON — returns error to trigger full decode
+//   - anything else:           legacy binary (no kind byte) — timestamp at data[0:8]
 func extractTimestamp(data []byte) (time.Time, error) {
-	if len(data) < 8 {
-		return time.Time{}, fmt.Errorf("record too short for timestamp: %d bytes", len(data))
+	if len(data) < 1 {
+		return time.Time{}, fmt.Errorf("empty record")
 	}
-	return time.Unix(0, int64(binary.LittleEndian.Uint64(data[0:]))), nil
+	switch data[0] {
+	case recordKindBinary:
+		if len(data) < 9 {
+			return time.Time{}, fmt.Errorf("binary record too short for timestamp: %d bytes", len(data))
+		}
+		return time.Unix(0, int64(binary.LittleEndian.Uint64(data[1:9]))), nil
+	case '{':
+		return time.Time{}, fmt.Errorf("JSON record: use full decode")
+	default:
+		// Legacy binary record written before the kind-byte format.
+		if len(data) < 8 {
+			return time.Time{}, fmt.Errorf("legacy record too short for timestamp: %d bytes", len(data))
+		}
+		return time.Unix(0, int64(binary.LittleEndian.Uint64(data[0:8]))), nil
+	}
 }
 
 // ---- Version dispatch -------------------------------------------------------

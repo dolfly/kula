@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"kula-szpiegula/internal/collector"
-	"kula-szpiegula/internal/config"
+	"kula/internal/collector"
+	"kula/internal/config"
 )
 
 func fmtRes(d time.Duration) string {
@@ -282,7 +282,12 @@ func (s *Store) QueryRangeWithMeta(from, to time.Time, targetPoints int) (*Histo
 	s.queryCacheMu.Lock()
 	if cached, ok := s.queryCache[cacheKey]; ok {
 		s.queryCacheMu.Unlock()
-		return cached, nil
+		cp := &HistoryResult{
+			Samples:    append([]*AggregatedSample(nil), cached.Samples...),
+			Tier:       cached.Tier,
+			Resolution: cached.Resolution,
+		}
+		return cp, nil
 	}
 	s.queryCacheMu.Unlock()
 

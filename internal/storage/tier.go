@@ -13,7 +13,8 @@ import (
 // Tier implements a single ring-buffer storage tier.
 // File format:
 //   Header (64 bytes):
-//     [0:8]   magic "KULASPIE"
+//     [0:4]   magic "KULA"
+//     [4:8]   reserved
 //     [8:16]  version (uint64)
 //     [16:24] max data size (uint64)
 //     [24:32] write offset within data region (uint64)
@@ -27,7 +28,7 @@ import (
 
 const (
 	headerSize    = 64
-	magicString   = "KULASPIE"
+	magicString   = "KULA"
 	version       = 1
 	codecVersion2 = 2
 )
@@ -97,9 +98,9 @@ func (t *Tier) readHeader() error {
 		return err
 	}
 
-	magic := string(buf[0:8])
+	magic := string(buf[0:4])
 	if magic != magicString {
-		return fmt.Errorf("invalid magic: %s", magic)
+		return fmt.Errorf("invalid magic: %q", magic)
 	}
 
 	v := binary.LittleEndian.Uint64(buf[8:16])
@@ -133,7 +134,7 @@ func (t *Tier) readHeader() error {
 
 func (t *Tier) writeHeader() error {
 	buf := make([]byte, headerSize)
-	copy(buf[0:8], magicString)
+	copy(buf[0:4], magicString)
 	binary.LittleEndian.PutUint64(buf[8:16], t.codecVer)
 	binary.LittleEndian.PutUint64(buf[16:24], uint64(t.maxData))
 	binary.LittleEndian.PutUint64(buf[24:32], uint64(t.writeOff))
@@ -152,10 +153,16 @@ func (t *Tier) writeHeader() error {
 
 // Write stores a sample in the ring buffer.
 func (t *Tier) Write(s *AggregatedSample) error {
-	data, err := encodeSampleV(s)
+	payload, err := encodeSampleV(s)
 	if err != nil {
 		return err
 	}
+
+	// Prepend the record kind byte so readers can identify the format
+	// deterministically without inspecting timestamp bytes.
+	data := make([]byte, 1+len(payload))
+	data[0] = recordKindBinary
+	copy(data[1:], payload)
 
 	recordLen := 4 + len(data) // length prefix + data
 	if int64(recordLen) > t.maxData {
@@ -296,10 +303,15 @@ func (t *Tier) ReadRange(from, to time.Time) ([]*AggregatedSample, error) {
 
 			ts, err := extractTimestamp(data)
 			if err != nil {
-				// Fallback: full decode for v1 / corrupted records
-				sample, err := t.readRecord(data)
-				if err == nil && !sample.Timestamp.Before(from) && !sample.Timestamp.After(to) {
-					samples = append(samples, sample)
+				// Fallback: full decode for JSON records or unreadable binary.
+				sample, decErr := t.readRecord(data)
+				if decErr == nil {
+					if sample.Timestamp.After(to) {
+						break
+					}
+					if !sample.Timestamp.Before(from) {
+						samples = append(samples, sample)
+					}
 				}
 				bytesRead += recordLen
 				continue
@@ -426,44 +438,69 @@ func (t *Tier) Flush() error {
 	return t.writeHeader()
 }
 
-// readRecord decodes a payload using this tier's codec version.
+// readRecord decodes a payload using per-record format detection.
+//
+//   - recordKindBinary (0x02): kind-tagged binary written by current code
+//   - '{' (0x7B):              legacy JSON record
+//   - anything else:           legacy binary record (no kind byte)
 func (t *Tier) readRecord(data []byte) (*AggregatedSample, error) {
-	return decodeSampleV(data, t.codecVer)
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty record")
+	}
+	switch data[0] {
+	case recordKindBinary:
+		return decodeSample(data[1:])
+	case '{':
+		return decodeSampleJSON(data)
+	default:
+		// Legacy binary record written before the kind-byte format.
+		return decodeSample(data)
+	}
 }
 
-// readTimestampAt reads the timestamp of the first record at the given data-region
-// offset. Returns an error if the record is invalid. Must be called under at least
-// a read lock (Write holds the write lock, which is sufficient).
+// readTimestampAt reads the timestamp of the record at the given data-region
+// offset. Returns an error if the record is invalid. Must be called under at
+// least a read lock (Write holds the write lock, which is sufficient).
 //
-// For v2 (binary) files a single 12-byte ReadAt extracts the timestamp directly
-// from its fixed offset — no payload allocation, no scanning.
+// Format detection uses the explicit kind byte for new binary records and falls
+// back to content sniffing for legacy formats (JSON: '{'; binary: no kind byte).
 func (t *Tier) readTimestampAt(dataOffset int64) (time.Time, error) {
-	if t.codecVer >= codecVersion2 {
-		// [0:4] = length prefix, [4:12] = timestamp_ns
-		var buf [12]byte
-		if _, err := t.file.ReadAt(buf[:], headerSize+dataOffset); err != nil {
-			return time.Time{}, err
-		}
-		dataLen := binary.LittleEndian.Uint32(buf[0:4])
-		if dataLen == 0 || int64(dataLen) > t.maxData {
-			return time.Time{}, fmt.Errorf("invalid record length %d at offset %d", dataLen, dataOffset)
-		}
-		return time.Unix(0, int64(binary.LittleEndian.Uint64(buf[4:12]))), nil
-	}
-	// v1: read full payload and extract timestamp via old JSON scan.
-	lenBuf := make([]byte, 4)
-	if _, err := t.file.ReadAt(lenBuf, headerSize+dataOffset); err != nil {
+	// 4-byte length prefix + 1 kind byte + 8-byte timestamp = 13 bytes covers all
+	// three formats in a single ReadAt call.
+	var buf [13]byte
+	if _, err := t.file.ReadAt(buf[:], headerSize+dataOffset); err != nil {
 		return time.Time{}, err
 	}
-	dataLen := binary.LittleEndian.Uint32(lenBuf)
+	dataLen := binary.LittleEndian.Uint32(buf[0:4])
 	if dataLen == 0 || int64(dataLen) > t.maxData {
 		return time.Time{}, fmt.Errorf("invalid record length %d at offset %d", dataLen, dataOffset)
 	}
-	data := make([]byte, dataLen)
-	if _, err := t.file.ReadAt(data, headerSize+dataOffset+4); err != nil {
-		return time.Time{}, err
+
+	switch buf[4] {
+	case recordKindBinary:
+		// Kind-tagged binary record: timestamp follows the kind byte.
+		if dataLen < 9 {
+			return time.Time{}, fmt.Errorf("binary record too short for timestamp: %d bytes", dataLen)
+		}
+		return time.Unix(0, int64(binary.LittleEndian.Uint64(buf[5:13]))), nil
+	case '{':
+		// Legacy JSON record: must fully decode to get timestamp.
+		data := make([]byte, dataLen)
+		if _, err := t.file.ReadAt(data, headerSize+dataOffset+4); err != nil {
+			return time.Time{}, err
+		}
+		s, err := decodeSampleJSON(data)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return s.Timestamp, nil
+	default:
+		// Legacy binary record (no kind byte): timestamp at start of payload.
+		if dataLen < 8 {
+			return time.Time{}, fmt.Errorf("legacy binary record too short: %d bytes", dataLen)
+		}
+		return time.Unix(0, int64(binary.LittleEndian.Uint64(buf[4:12]))), nil
 	}
-	return extractTimestamp(data)
 }
 
 // OldestTimestamp returns the oldest sample timestamp in this tier.
@@ -511,9 +548,9 @@ func InspectTierFile(path string) (*TierInfo, error) {
 		return nil, fmt.Errorf("reading header: %w", err)
 	}
 
-	magic := string(buf[0:8])
+	magic := string(buf[0:4])
 	if magic != magicString {
-		return nil, fmt.Errorf("invalid magic: %s", magic)
+		return nil, fmt.Errorf("invalid magic: %q", magic)
 	}
 
 	info := &TierInfo{

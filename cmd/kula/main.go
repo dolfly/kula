@@ -14,13 +14,13 @@ import (
 	"syscall"
 	"time"
 
-	"kula-szpiegula"
-	"kula-szpiegula/internal/collector"
-	"kula-szpiegula/internal/config"
-	"kula-szpiegula/internal/sandbox"
-	"kula-szpiegula/internal/storage"
-	"kula-szpiegula/internal/tui"
-	"kula-szpiegula/internal/web"
+	"kula"
+	"kula/internal/collector"
+	"kula/internal/config"
+	"kula/internal/sandbox"
+	"kula/internal/storage"
+	"kula/internal/tui"
+	"kula/internal/web"
 
 	"github.com/charmbracelet/x/term"
 )

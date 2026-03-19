@@ -4,7 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"kula-szpiegula/internal/collector"
+	"kula/internal/collector"
 )
 
 const (

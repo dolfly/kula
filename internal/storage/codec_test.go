@@ -3,7 +3,7 @@ package storage
 import (
 	"encoding/binary"
 	"encoding/json"
-	"kula-szpiegula/internal/collector"
+	"kula/internal/collector"
 	"testing"
 	"time"
 )

@@ -33,8 +33,9 @@ func (c *Collector) collectSysfsGPUStats(info GPUInfo, s *GPUStats, elapsed floa
 				key := "energy:" + info.DRMPath
 				if prev, ok := c.prevEnergy[key]; ok && elapsed > 0 {
 					if energyMicroJ < prev {
-						// Counter reset or wrap
-						c.debugf("gpu[%d]: energy counter reset (prev: %d, now: %d)", s.Index, prev, energyMicroJ)
+						// Counter decreased — driver reload, device reset, or suspend/resume.
+						// Do not calculate a delta: the reading is not a counter wrap.
+						c.debugf("gpu[%d]: energy counter reset (prev=%d, now=%d), skipping sample", s.Index, prev, energyMicroJ)
 					} else {
 						delta := energyMicroJ - prev
 						// If s.PowerW was set from power1_input/average, only override if it's 0 or we prefer energy derivation

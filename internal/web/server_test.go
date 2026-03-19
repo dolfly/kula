@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"kula-szpiegula/internal/config"
+	"kula/internal/config"
 )
 
 func TestTemplateInjection(t *testing.T) {

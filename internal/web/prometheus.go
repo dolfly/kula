@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"kula-szpiegula/internal/collector"
+	"kula/internal/collector"
 )
 
 // handleMetrics serves Prometheus-compatible metrics in text exposition format.

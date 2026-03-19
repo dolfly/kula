@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"kula-szpiegula/internal/collector"
+	"kula/internal/collector"
 )
 
 // Layout constants define responsive design thresholds and dimensions.

@@ -1,4 +1,4 @@
-module kula-szpiegula
+module kula
 
 go 1.26.1
 
