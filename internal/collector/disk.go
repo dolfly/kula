@@ -207,14 +207,26 @@ func (c *Collector) collectFileSystems() []FileSystemInfo {
 	var result []FileSystemInfo
 	seen := make(map[string]bool)
 
-	sources := []string{filepath.Join(procPath, "1", "mounts")}
-	if !sameMountNamespace() {
-		sources = append(sources, filepath.Join(procPath, "mounts"))
+	var sources []string
+	switch c.collCfg.MountsDetection {
+	case "host":
+		sources = []string{filepath.Join(procPath, "1", "mounts")}
+	case "self":
+		sources = []string{filepath.Join(procPath, "mounts")}
+	case "auto":
+		fallthrough
+	default:
+		sources = []string{filepath.Join(procPath, "1", "mounts")}
+		if !sameMountNamespace() {
+			sources = append(sources, filepath.Join(procPath, "mounts"))
+		}
 	}
+
 	for _, src := range sources {
 		f, err := os.Open(src)
 		if err != nil {
-			// If /proc/1/mounts is not accessible, fall back to self/mounts
+			// If requested source is not accessible, fall back to what's available
+			// only if in "auto" mode or if it was the primary choice.
 			if src == filepath.Join(procPath, "1", "mounts") {
 				if f2, err2 := os.Open(filepath.Join(procPath, "mounts")); err2 == nil {
 					c.scanMounts(f2, &result, seen, explicitFilter)

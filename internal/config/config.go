@@ -31,6 +31,9 @@ type CollectionConfig struct {
 	Devices     []string      `yaml:"devices"`
 	MountPoints []string      `yaml:"mountpoints"`
 	Interfaces  []string      `yaml:"interfaces"`
+	// MountsDetection controls how mount points are detected.
+	// Options: "auto" (default), "host", "self"
+	MountsDetection string `yaml:"mounts_detection"`
 	// DebugLog enables verbose debug logging for device/interface/filesystem
 	// discovery. Activated when web.logging.level = "debug". Not exposed in YAML.
 	DebugLog bool `yaml:"-"`
@@ -142,7 +145,8 @@ func DefaultConfig() *Config {
 			DefaultTheme:   "dark",
 		},
 		Collection: CollectionConfig{
-			Interval: time.Second,
+			Interval:        time.Second,
+			MountsDetection: "auto",
 		},
 		Storage: StorageConfig{
 			Directory: "/var/lib/kula",

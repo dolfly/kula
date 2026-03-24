@@ -20,6 +20,11 @@ global:
 # Data collection settings
 collection:
   interval: 1s
+  # Control how mount points are detected. (default: auto)
+  # - auto: merges host and container mounts (detects namespaces)
+  # - host: reads only /proc/1/mounts (host-level visibility)
+  # - self: reads only /proc/self/mounts (container-level visibility)
+  mounts_detection: auto
   # You can override the auto-detected list of disks and network interfaces by uncommenting and populating these lists:
   # devices: ["sda", "nvme0n1"]
   # mountpoints: ["/", "/mnt/data"]

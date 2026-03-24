@@ -12,6 +12,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 ### Added
 
 - Per-device/interface graph splitting
+- New config option: mounts_detection - control how mount points are detected. (#5)
 
 ### Changed
 
