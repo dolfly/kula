@@ -16,6 +16,10 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 - Custom metrics monitoring via unix socket
 - New build dependency: github.com/lib/pq
 
+### Changed
+
+- Default value for default_aggregation to max
+
 ## [0.13.0] - 2026-03-24
 
 ### Added

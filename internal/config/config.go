@@ -214,7 +214,7 @@ func DefaultConfig() *Config {
 				Enabled: false,
 			},
 			JoinMetrics:        false,
-			DefaultAggregation: "avg",
+			DefaultAggregation: "max",
 			Auth: AuthConfig{
 				SessionTimeout: 24 * time.Hour,
 				Argon2: Argon2Config{
