@@ -2,16 +2,39 @@
 # addons/benchmark.sh — Run the storage engine benchmark suite and pretty-print results.
 #
 # Usage:
-#   bash addons/benchmark.sh [benchtime]
+#   bash addons/benchmark.sh [options] [benchtime]
+#
+# Options:
+#   -o FILE   Save raw go-test output (benchstat-compatible) to FILE
+#   -c N      Number of benchmark runs (default: 1; use -c 5 for benchstat)
 #
 # Examples:
-#   bash addons/benchmark.sh          # default: 3s per benchmark
-#   bash addons/benchmark.sh 5s       # longer run for tighter numbers
-#   bash addons/benchmark.sh 10s      # CI / regression baseline
+#   bash addons/benchmark.sh                   # default: 3s per benchmark, single pass
+#   bash addons/benchmark.sh 5s                # longer run for tighter numbers
+#   bash addons/benchmark.sh -c 5 -o new.txt   # 5 runs, save for benchstat comparison
+#
+# Comparing runs:
+#   bash addons/benchmark.sh -o old.txt 3s     # baseline
+#   # ... make changes ...
+#   bash addons/benchmark.sh -o new.txt 3s     # after changes
+#   benchstat old.txt new.txt                  # compare with benchstat
 
 set -euo pipefail
 
-BENCHTIME="${1:-3s}"
+# ── defaults ─────────────────────────────────────────────────────────────────
+BENCHTIME=""
+RAW_OUTPUT=""
+COUNT=1
+
+# ── parse flags ──────────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o) RAW_OUTPUT="$2"; shift 2 ;;
+        -c) COUNT="$2"; shift 2 ;;
+        *)  BENCHTIME="$1"; shift ;;
+    esac
+done
+BENCHTIME="${BENCHTIME:-3s}"
 
 # ── colours ──────────────────────────────────────────────────────────────────
 BOLD="\033[1m"
@@ -25,6 +48,7 @@ RESET="\033[0m"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 cd "$(dirname "$0")/.."
+SUITE_START=$(date +%s)
 
 header() {
     local title="$1"
@@ -77,13 +101,16 @@ format_bench_line() {
     local name ns_val b_op alloc_op
     IFS=$'\t' read -r name ns_val b_op alloc_op <<< "$parsed"
 
-    # Colour the ns/op value by order of magnitude
+    # Colour the ns/op value by order of magnitude:
+    #   < 1 us   (1 000 ns)    = green   (fast: codec, extraction)
+    #   < 100 us (100 000 ns)  = yellow  (moderate: writes, small queries)
+    #   >= 100 us              = magenta (slow: large queries, aggregation)
     local ns_color
     local ns_num
     ns_num=$(echo "$ns_val" | tr -d ',' | cut -d. -f1)
-    if [[ "$ns_num" =~ ^[0-9]+$ ]] && (( ns_num < 200 )); then
+    if [[ "$ns_num" =~ ^[0-9]+$ ]] && (( ns_num < 1000 )); then
         ns_color="${GREEN}"
-    elif [[ "$ns_num" =~ ^[0-9]+$ ]] && (( ns_num < 50000 )); then
+    elif [[ "$ns_num" =~ ^[0-9]+$ ]] && (( ns_num < 100000 )); then
         ns_color="${YELLOW}"
     else
         ns_color="${MAGENTA}"
@@ -91,24 +118,6 @@ format_bench_line() {
 
     printf "  ${BOLD}%-50s${RESET}  ${ns_color}%12s ns/op${RESET}  ${DIM}%10s B/op  %5s allocs${RESET}\n" \
         "$name" "$ns_val" "$b_op" "$alloc_op"
-}
-
-# Run benchmarks for a package, filter by pattern, and pretty-print.
-run_benchmarks() {
-    local pkg="$1"
-    local pattern="$2"
-    local tmp
-    tmp=$(mktemp)
-
-    go test \
-        -bench="$pattern" \
-        -benchmem \
-        -benchtime="$BENCHTIME" \
-        -count=1 \
-        -run='^$' \
-        "$pkg" 2>&1 | tee "$tmp" | grep -v '^ok\|^goos\|^goarch\|^pkg\|^cpu' || true
-
-    rm -f "$tmp"
 }
 
 pretty_run() {
@@ -120,19 +129,66 @@ pretty_run() {
         -bench="$pattern" \
         -benchmem \
         -benchtime="$BENCHTIME" \
-        -count=1 \
+        -count="$COUNT" \
         -run='^$' \
-        "$pkg" 2>/dev/null)
+        "$pkg" 2>&1)
 
+    # Append raw output for benchstat if -o was given.
+    if [[ -n "$RAW_OUTPUT" ]]; then
+        echo "$raw" >> "$RAW_OUTPUT"
+    fi
+
+    # Pretty-print only the last iteration of each benchmark (avoid
+    # repeating the same line $COUNT times in the terminal).
+    local seen=""
     while IFS= read -r line; do
-        format_bench_line "$line"
+        if [[ "$line" =~ ^Benchmark ]]; then
+            local bname
+            bname=$(echo "$line" | awk '{ sub(/-[0-9]+$/, "", $1); print $1 }')
+            # Track seen names; only print the last occurrence
+            seen="${seen}${bname}\n"
+        fi
     done <<< "$raw"
+
+    # Second pass: print only the final occurrence of each benchmark name
+    local last_seen=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^Benchmark ]]; then
+            local bname
+            bname=$(echo "$line" | awk '{ sub(/-[0-9]+$/, "", $1); print $1 }')
+            if [[ "$last_seen" == *"$bname"* ]]; then
+                continue
+            fi
+            last_seen="${last_seen} ${bname}"
+        fi
+    done <<< "$raw"
+
+    # Simple approach: deduplicate by printing last line per benchmark name
+    declare -A last_line
+    local order=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^Benchmark ]]; then
+            local bname
+            bname=$(echo "$line" | awk '{ sub(/-[0-9]+$/, "", $1); print $1 }')
+            if [[ -z "${last_line[$bname]+x}" ]]; then
+                order+=("$bname")
+            fi
+            last_line[$bname]="$line"
+        fi
+    done <<< "$raw"
+    for bname in "${order[@]}"; do
+        format_bench_line "${last_line[$bname]}"
+    done
 }
 
 # ── banner ────────────────────────────────────────────────────────────────────
 echo -e "\n${BOLD}${CYAN}  kula — Storage Engine Benchmark Suite${RESET}"
-echo -e "${DIM}  benchtime=${BENCHTIME}   pkg=kula/internal/storage${RESET}"
+echo -e "${DIM}  benchtime=${BENCHTIME}  count=${COUNT}  pkg=kula/internal/storage${RESET}"
 echo -e "${DIM}  $(go version)${RESET}"
+if [[ -n "$RAW_OUTPUT" ]]; then
+    : > "$RAW_OUTPUT"  # truncate
+    echo -e "${DIM}  raw output → ${RAW_OUTPUT}${RESET}"
+fi
 
 PKG="kula/internal/storage"
 
@@ -224,4 +280,13 @@ divider
 # ═══════════════════════════════════════════════════════════════════
 # DONE
 # ═══════════════════════════════════════════════════════════════════
-echo -e "\n🎉  Benchmark run ${GREEN}${BOLD}complete${RESET}${GREEN}.${RESET}  (benchtime=${BENCHTIME})\n"
+SUITE_END=$(date +%s)
+ELAPSED=$(( SUITE_END - SUITE_START ))
+MINS=$(( ELAPSED / 60 ))
+SECS=$(( ELAPSED % 60 ))
+
+echo -e "\n  Benchmark run ${GREEN}${BOLD}complete${RESET}  (benchtime=${BENCHTIME}  count=${COUNT}  elapsed=${MINS}m${SECS}s)"
+if [[ -n "$RAW_OUTPUT" ]]; then
+    echo -e "  ${DIM}Raw output saved to ${RAW_OUTPUT} — compare with: benchstat old.txt ${RAW_OUTPUT}${RESET}"
+fi
+echo ""
