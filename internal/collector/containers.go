@@ -33,10 +33,11 @@ type containerCollector struct {
 	prevCPU  map[string]containerCPURaw
 	prevNet  map[string]containerNetRaw
 	prevDisk map[string]containerDiskRaw
-	prevTime time.Time
-	client   *http.Client
+	prevTime  time.Time
+	client    *http.Client
 	socket    string // resolved socket path
-	debugDone bool   // set after first successful debug log
+	debugDone bool   // set after first collection cycle
+	lastCount int    // previous container count; log only on change
 }
 
 // ContainersCollectorConfig is the internal config needed by the container collector.
@@ -79,10 +80,11 @@ var knownSocketPaths = []string{
 
 func newContainerCollector(cfg ContainersCollectorConfig) *containerCollector {
 	cc := &containerCollector{
-		cfg:      cfg,
-		prevCPU:  make(map[string]containerCPURaw),
-		prevNet:  make(map[string]containerNetRaw),
-		prevDisk: make(map[string]containerDiskRaw),
+		cfg:       cfg,
+		prevCPU:   make(map[string]containerCPURaw),
+		prevNet:   make(map[string]containerNetRaw),
+		prevDisk:  make(map[string]containerDiskRaw),
+		lastCount: -1, // force first-cycle log
 	}
 	cc.resolveSocket()
 	return cc
@@ -198,9 +200,7 @@ func (cc *containerCollector) collect() {
 
 	cc.mu.Lock()
 	cc.latest = stats
-	if len(stats) > 0 {
-		cc.debugDone = true
-	}
+	cc.debugDone = true
 	cc.mu.Unlock()
 }
 
@@ -231,7 +231,11 @@ func (cc *containerCollector) collectViaSocket(elapsed float64) []ContainerStats
 		return nil
 	}
 
-	cc.debugf("[containers] discovered %d containers via socket", len(containers))
+	// Log only on state transitions (count changes) to avoid per-cycle spam.
+	if len(containers) != cc.lastCount {
+		log.Printf("[containers] discovered %d containers via socket", len(containers))
+		cc.lastCount = len(containers)
+	}
 
 	var stats []ContainerStats
 	for _, c := range containers {

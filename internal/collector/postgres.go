@@ -30,11 +30,12 @@ type pgRaw struct {
 
 // postgresCollector manages the PostgreSQL connection and metrics.
 type postgresCollector struct {
-	dsn    string
-	db     *sql.DB
-	dbName string
-	prev   pgRaw
-	debug  bool
+	dsn          string
+	db           *sql.DB
+	dbName       string
+	prev         pgRaw
+	debug        bool
+	wasConnected bool // tracks connection state for log transitions
 }
 
 // newPostgresCollector builds the DSN and returns a collector (without connecting yet).
@@ -63,14 +64,21 @@ func newPostgresCollector(host string, port int, user, password, dbname, sslmode
 // connect establishes (or verifies) the DB connection.
 func (pc *postgresCollector) connect() error {
 	if pc.db != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 		if err := pc.db.PingContext(ctx); err == nil {
 			return nil // already connected
 		}
-		// Connection lost, close and retry
+		// Connection lost, close and retry.
+		// Clear prev counters so we don't compute bogus rates against
+		// stale values from a previous postgres instance.
 		_ = pc.db.Close()
 		pc.db = nil
+		pc.prev = pgRaw{}
+		if pc.wasConnected {
+			log.Printf("[postgres] connection to %q lost, will retry", pc.dbName)
+			pc.wasConnected = false
+		}
 	}
 
 	db, err := sql.Open("postgres", pc.dsn)
@@ -81,15 +89,16 @@ func (pc *postgresCollector) connect() error {
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return fmt.Errorf("postgres ping: %w", err)
 	}
 	pc.db = db
-	if pc.debug {
-		log.Printf("[postgres] connected to database %q (DSN length: %d)", pc.dbName, len(pc.dsn))
+	if !pc.wasConnected {
+		log.Printf("[postgres] connected to database %q", pc.dbName)
+		pc.wasConnected = true
 	}
 	return nil
 }
@@ -108,10 +117,11 @@ func (c *Collector) collectPostgres(elapsed float64) *PostgresStats {
 	}
 
 	if err := c.pgCollector.connect(); err != nil {
-		c.appErrorf("[postgres] connection failed: %v", err)
+		// Logged via state transitions in connect(); suppress per-cycle noise.
+		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	stats := &PostgresStats{}
