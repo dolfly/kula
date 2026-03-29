@@ -40,6 +40,7 @@ stores them in a built-in tiered ring-buffer storage engine, and serves them thr
 | **Processes** | Running, sleeping, blocked, zombie counts |
 | **Self** | Kula's own CPU%, RSS memory, open file descriptors |
 | **Thermal** | CPU, GPU and Disk temperatures |
+| **Battery** | /sys/class/power_supply - power supply / battery status |
 | **Containers** | Docker, podman, raw cgroups |
 | **Applications** | PostgreSQL, nginx |
 | **Custom** | Monitor anything with custom metrics |
