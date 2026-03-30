@@ -101,7 +101,7 @@ web:
 storage:
   directory: /tmp/kula-test
   tiers:
-    - resolution: 1s
+    - resolution: 5s
       max_size: 50MB
 tui:
   refresh_rate: 2s
@@ -159,5 +159,104 @@ func TestLoadEnvOverrides(t *testing.T) {
 	}
 	if cfg.Web.Port != 1234 {
 		t.Errorf("Web.Port = %d, want 1234", cfg.Web.Port)
+	}
+}
+
+func TestValidateTiers(t *testing.T) {
+	tests := []struct {
+		name     string
+		interval time.Duration
+		tiers    []TierConfig
+		wantErr  bool
+	}{
+		{
+			name:     "valid default config",
+			interval: time.Second,
+			tiers: []TierConfig{
+				{Resolution: time.Second, MaxSize: "10MB"},
+				{Resolution: time.Minute, MaxSize: "10MB"},
+				{Resolution: 5 * time.Minute, MaxSize: "10MB"},
+			},
+		},
+		{
+			name:     "valid 5s interval",
+			interval: 5 * time.Second,
+			tiers: []TierConfig{
+				{Resolution: 5 * time.Second, MaxSize: "10MB"},
+				{Resolution: time.Minute, MaxSize: "10MB"},
+			},
+		},
+		{
+			name:     "valid single tier",
+			interval: 10 * time.Second,
+			tiers: []TierConfig{
+				{Resolution: 10 * time.Second, MaxSize: "10MB"},
+			},
+		},
+		{
+			name:     "interval != tier0 resolution",
+			interval: 5 * time.Second,
+			tiers: []TierConfig{
+				{Resolution: time.Second, MaxSize: "10MB"},
+			},
+			wantErr: true,
+		},
+		{
+			name:     "tier0 resolution not in allowed set",
+			interval: 3 * time.Second,
+			tiers: []TierConfig{
+				{Resolution: 3 * time.Second, MaxSize: "10MB"},
+			},
+			wantErr: true,
+		},
+		{
+			name:     "tiers not ascending",
+			interval: time.Second,
+			tiers: []TierConfig{
+				{Resolution: time.Second, MaxSize: "10MB"},
+				{Resolution: time.Second, MaxSize: "10MB"},
+			},
+			wantErr: true,
+		},
+		{
+			name:     "tiers inverted",
+			interval: time.Second,
+			tiers: []TierConfig{
+				{Resolution: time.Second, MaxSize: "10MB"},
+				{Resolution: 500 * time.Millisecond, MaxSize: "10MB"},
+			},
+			wantErr: true,
+		},
+		{
+			name:     "tier not evenly divisible",
+			interval: 5 * time.Second,
+			tiers: []TierConfig{
+				{Resolution: 5 * time.Second, MaxSize: "10MB"},
+				{Resolution: 7 * time.Second, MaxSize: "10MB"},
+			},
+			wantErr: true,
+		},
+		{
+			name:     "no tiers",
+			interval: time.Second,
+			tiers:    nil,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Collection: CollectionConfig{Interval: tt.interval},
+				Storage:    StorageConfig{Tiers: tt.tiers},
+			}
+			err := cfg.validateTiers()
+			if tt.wantErr && err == nil {
+				t.Error("validateTiers() expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("validateTiers() unexpected error: %v", err)
+			}
+		})
 	}
 }

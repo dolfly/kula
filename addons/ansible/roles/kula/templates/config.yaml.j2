@@ -30,7 +30,8 @@ storage:
   # Insufficient permissions fallbacks to ~/.kula
   directory: /var/lib/kula
   tiers:
-    # Tier 1: 1-second resolution
+    # Tier 1 (raw): must match collection.interval
+    # Allowed values: 1s, 2s, 5s, 10s, 15s, 30s
     - resolution: 1s
       max_size: 250MB
     # Tier 2: 1-minute aggregation

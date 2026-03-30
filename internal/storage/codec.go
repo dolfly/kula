@@ -69,7 +69,7 @@ const fixedBlockSize = 218
 const recordKindBinary = byte(0x02)
 
 // AggregatedSample holds a time-aggregated metric sample.
-// For tier 0 (1s), this is just a wrapper around the raw sample.
+// For tier 0 (raw), this is just a wrapper around the raw sample.
 // For higher tiers, Data holds averaged values and Min/Max fields hold
 // the minimum and maximum observed values over the aggregation window.
 type AggregatedSample struct {
@@ -81,7 +81,7 @@ type AggregatedSample struct {
 }
 
 // encPool holds reusable byte slices to make encodeSample allocation-free on
-// the hot 1 Hz write path. Each pool entry is a *[]byte pointing to a slice
+// the hot write path. Each pool entry is a *[]byte pointing to a slice
 // with cap ~3000. The single heap allocation per call is the output record.
 var encPool = sync.Pool{New: func() any { b := make([]byte, 0, 3000); return &b }}
 

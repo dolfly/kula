@@ -48,8 +48,8 @@ type Store struct {
 	latestCache *AggregatedSample
 
 	// queryCache is a short-lived in-process cache for QueryRangeWithMeta.
-	// It deduplicates identical or concurrent API calls within one tier-0
-	// resolution window. Cleared on every WriteSample call.
+	// It deduplicates identical or concurrent API calls. Cleared on every
+	// WriteSample call.
 	queryCacheMu sync.Mutex
 	queryCache   map[queryCacheKey]*HistoryResult
 }
@@ -77,7 +77,7 @@ func NewStore(cfg config.StorageConfig) (*Store, error) {
 		queryCache: make(map[queryCacheKey]*HistoryResult),
 	}
 
-	// Compute aggregation ratios once — used on every 1 Hz WriteSample tick.
+	// Compute aggregation ratios once — used on every WriteSample tick.
 	if len(cfg.Tiers) > 1 && cfg.Tiers[0].Resolution > 0 {
 		s.ratio1 = int(cfg.Tiers[1].Resolution / cfg.Tiers[0].Resolution)
 	}
@@ -170,17 +170,18 @@ func (s *Store) reconstructAggregationState() {
 	}
 }
 
-// WriteSample writes a raw sample to tier 1 and triggers aggregation.
+// WriteSample writes a raw sample to tier 0 and triggers aggregation.
 func (s *Store) WriteSample(sample *collector.Sample) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Write to tier 1 (1-second)
-	dur := time.Second
+	// Use the actual tier-0 resolution as the default/fallback duration.
+	fallbackDur := s.configs[0].Resolution
+	dur := fallbackDur
 	if s.latestCache != nil {
 		dur = sample.Timestamp.Sub(s.latestCache.Timestamp)
 		if dur <= 0 {
-			dur = time.Second // Fallback for out-of-order or duplicate samples
+			dur = fallbackDur
 		}
 	}
 
@@ -316,10 +317,7 @@ func (s *Store) QueryRangeWithMeta(from, to time.Time, targetPoints int) (*Histo
 		}
 
 		// Estimate sample count for this tier.
-		resDur := time.Second
-		if tierIdx < len(resDurations) {
-			resDur = resDurations[tierIdx]
-		}
+		resDur := resDurations[tierIdx]
 		estimatedSamples := int(duration / resDur)
 
 		// If the estimated count is far beyond what the screen needs AND there
@@ -341,10 +339,7 @@ func (s *Store) QueryRangeWithMeta(from, to time.Time, targetPoints int) (*Histo
 			continue
 		}
 
-		res := "1s"
-		if tierIdx < len(resolutions) {
-			res = resolutions[tierIdx]
-		}
+		res := resolutions[tierIdx]
 
 		if len(samples) > int(float64(targetPoints)*1.5) {
 			groupSize := len(samples) / targetPoints
@@ -368,10 +363,7 @@ func (s *Store) QueryRangeWithMeta(from, to time.Time, targetPoints int) (*Histo
 					}
 				}
 				samples = downsampled
-				resDur := time.Second
-				if tierIdx < len(resDurations) {
-					resDur = resDurations[tierIdx]
-				}
+				resDur := resDurations[tierIdx]
 				res = fmtRes(resDur * time.Duration(groupSize))
 			}
 		}

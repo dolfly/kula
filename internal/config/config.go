@@ -323,7 +323,66 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := cfg.validateTiers(); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateTiers checks that collection.interval and storage.tiers form a
+// consistent, ascending hierarchy with clean divisibility.
+func (c *Config) validateTiers() error {
+	tiers := c.Storage.Tiers
+	if len(tiers) == 0 {
+		return fmt.Errorf("at least one storage tier is required")
+	}
+
+	// Tier 0 resolution must equal the collection interval.
+	if tiers[0].Resolution != c.Collection.Interval {
+		return fmt.Errorf("storage.tiers[0].resolution (%s) must equal collection.interval (%s)",
+			tiers[0].Resolution, c.Collection.Interval)
+	}
+
+	// Tier 0 allowed values: 1s, 2s, 5s, 10s, 15s, 30s.
+	allowed := []time.Duration{
+		time.Second,
+		2 * time.Second,
+		5 * time.Second,
+		10 * time.Second,
+		15 * time.Second,
+		30 * time.Second,
+	}
+	valid := false
+	for _, a := range allowed {
+		if tiers[0].Resolution == a {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("storage.tiers[0].resolution (%s) must be one of: 1s, 2s, 5s, 10s, 15s, 30s",
+			tiers[0].Resolution)
+	}
+
+	for i := 1; i < len(tiers); i++ {
+		prev := tiers[i-1].Resolution
+		curr := tiers[i].Resolution
+
+		// Each tier must have a strictly higher resolution than the previous.
+		if curr <= prev {
+			return fmt.Errorf("storage.tiers[%d].resolution (%s) must be greater than tiers[%d].resolution (%s)",
+				i, curr, i-1, prev)
+		}
+
+		// Higher tier must be evenly divisible by the previous tier.
+		if curr%prev != 0 {
+			return fmt.Errorf("storage.tiers[%d].resolution (%s) must be a multiple of tiers[%d].resolution (%s)",
+				i, curr, i-1, prev)
+		}
+	}
+
+	return nil
 }
 
 func checkStorageDirectory(cfg *Config) error {

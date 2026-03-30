@@ -21,6 +21,7 @@ global:
 
 # Data collection settings
 collection:
+  # Allowed values: 1s, 2s, 5s, 10s, 15s, 30s
   interval: 1s
   # Control how mount points are detected. (default: auto)
   # - auto: merges host and container mounts (detects namespaces)
@@ -37,15 +38,16 @@ storage:
   # Insufficient permissions fallbacks to ~/.kula
   directory: /var/lib/kula
   tiers:
-    # Tier 1: 1-second resolution
+    # Tier 1 (raw): must match collection.interval
     - resolution: 1s
       max_size: 250MB
-    # Tier 2: 1-minute aggregation
+    # Tier 2: 1-minute aggregation (must be > tier 1 && < tier3)
     - resolution: 1m
       max_size: 150MB
-    # Tier 3: 5-minute aggregation
+    # Tier 3: 5-minute aggregation (must be > tier2)
     - resolution: 5m
       max_size: 50MB
+    # Note: Changing default resolutions may result in unexpected behavior
 
 # Web UI settings
 web:

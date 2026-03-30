@@ -1000,13 +1000,13 @@ export function syncZoom(sourceChart) {
     });
 
     // When zooming or panning, fetch the optimal data resolution for the new view.
-    // If we're already at max resolution (1s) and the buffer completely covers the window,
-    // we can skip the network request.
+    // If we're already at max resolution (raw tier) and the buffer completely covers
+    // the window, we can skip the network request.
     if (min && max) {
         const fromDate = new Date(min);
         const toDate   = new Date(max);
-        
-        if (state.currentResolution === '1s' && tryZoomFromBuffer(fromDate, toDate)) {
+
+        if (state.currentTier === 0 && tryZoomFromBuffer(fromDate, toDate)) {
             return;
         }
 
@@ -1429,13 +1429,14 @@ export function updateSamplingInfo(tier, resolution) {
     const name = tierNames[tier] || `Tier ${tier + 1}`;
     el.textContent = `${resolution} samples · ${name}`;
     state.currentResolution = resolution || '1s';
+    state.currentTier = tier;
 
     const aggList = document.getElementById('agg-presets-list');
     const aggDiv = document.getElementById('agg-divider');
     const aggBtnMobile = document.getElementById('btn-agg-menu');
 
     if (aggList && aggDiv) {
-        if (tier === 0 && resolution === '1s') {
+        if (tier === 0) {
             aggList.classList.add('hidden');
             aggDiv.classList.add('hidden');
             if (aggBtnMobile) aggBtnMobile.classList.add('hidden');
