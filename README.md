@@ -125,7 +125,7 @@ Note: Never thoughtlessly paste commands into the terminal. Even checking the ch
 ### Guided
 
 ```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install.sh)"
 ```
 
 ### Guided (verify installer)
