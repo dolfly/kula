@@ -218,8 +218,8 @@ func DefaultConfig() *Config {
 			Auth: AuthConfig{
 				SessionTimeout: 24 * time.Hour,
 				Argon2: Argon2Config{
-					Time:    1,
-					Memory:  64 * 1024,
+					Time:    3,
+					Memory:  32 * 1024,
 					Threads: 4,
 				},
 			},
