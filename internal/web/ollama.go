@@ -78,10 +78,24 @@ func (rl *chatRateLimiter) Allow(ip string) bool {
 	return true
 }
 
-// ollamaClient proxies requests to a local Ollama instance.
+// ollamaClient proxies requests to a local Ollama instance or any OpenAI-compatible backend.
+// The API flavour is detected automatically on the first fetchModels call and cached.
 type ollamaClient struct {
-	cfg     config.OllamaConfig
-	timeout time.Duration
+	cfg         config.OllamaConfig
+	timeout     time.Duration
+	mu          sync.RWMutex
+	detectedAPI string // "ollama" or "openai"; empty until first successful probe
+}
+
+// effectiveAPIType returns the detected API flavour, defaulting to "ollama" before detection.
+func (oc *ollamaClient) effectiveAPIType() string {
+	oc.mu.RLock()
+	t := oc.detectedAPI
+	oc.mu.RUnlock()
+	if t != "" {
+		return t
+	}
+	return "ollama"
 }
 
 // newOllamaClient parses the configured timeout and returns a ready client.
@@ -95,6 +109,7 @@ func newOllamaClient(cfg config.OllamaConfig) *ollamaClient {
 		log.Printf("[Ollama] invalid timeout %q, using default %s", cfg.Timeout, ollamaDefaultTimeout) // [L1]
 		d = ollamaDefaultTimeout
 	}
+	log.Printf("[Ollama] client ready: url=%s model=%s timeout=%s (API auto-detect)", cfg.URL, cfg.Model, d)
 	return &ollamaClient{cfg: cfg, timeout: d}
 }
 
@@ -124,12 +139,37 @@ type ollamaToolProp struct {
 	Enum        []string `json:"enum,omitempty"`
 }
 
+// ollamaCallFunc is the function part of a tool call.
+type ollamaCallFunc struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
 // ollamaToolCall is a single tool invocation requested by the model.
 type ollamaToolCall struct {
+	ID       string         `json:"id,omitempty"` // present in OpenAI-compat responses
+	Function ollamaCallFunc `json:"function"`
+}
+
+// openAIToolCallDelta is a fragment of a tool call in an OpenAI streaming chunk.
+type openAIToolCallDelta struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
 	Function struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
 	} `json:"function"`
+}
+
+// openAIStreamChunk is one SSE frame from an OpenAI-compatible streaming response.
+type openAIStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content   string                `json:"content"`
+			ToolCalls []openAIToolCallDelta `json:"tool_calls"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
 }
 
 // ollamaChatRequest is the payload sent to Ollama /api/chat.
@@ -141,9 +181,10 @@ type ollamaChatRequest struct {
 }
 
 type ollamaMessage struct {
-	Role      string           `json:"role"`
-	Content   string           `json:"content,omitempty"`
-	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content,omitempty"`
+	ToolCalls  []ollamaToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"` // required by OpenAI-compat for tool result messages
 }
 
 // ollamaChunk is one streaming response frame from Ollama.
@@ -230,13 +271,18 @@ func (s *Server) handleOllamaChat(w http.ResponseWriter, r *http.Request) {
 	// identifier — length is already bounded by ollamaMaxBody, but we still want
 	// to keep control characters and shell metacharacters out of the proxied
 	// request body.
-	oc := s.ollama
-	if m := strings.TrimSpace(req.Model); m != "" && m != s.ollama.cfg.Model {
+	model := s.ollama.cfg.Model
+	if m := strings.TrimSpace(req.Model); m != "" && m != model {
 		if ollamaModelNameRe.MatchString(m) {
-			cp := *s.ollama
-			cp.cfg.Model = m
-			oc = &cp
+			model = m
+		} else if debugLog {
+			log.Printf("[DEBUG] [Ollama] rejected invalid model name %q, using configured model %s", m, model)
 		}
+	}
+
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama] chat: ip=%s model=%s api=%s prompt_len=%d history=%d",
+			ip, model, s.ollama.effectiveAPIType(), utf8.RuneCountInString(userPrompt), len(req.Messages))
 	}
 
 	// Wire up tools when storage is available.
@@ -274,7 +320,7 @@ func (s *Server) handleOllamaChat(w http.ResponseWriter, r *http.Request) {
 	// content would leave the browser with no SSE connection established.
 	flusher.Flush()
 
-	err := oc.streamChat(r.Context(), messages, tools, toolExecutor, w, flusher, debugLog)
+	err := s.ollama.streamChat(r.Context(), model, messages, tools, toolExecutor, w, flusher, debugLog)
 	if err != nil {
 		// If headers already sent, we can only log the error.
 		log.Printf("[Ollama] stream error: %v", err)
@@ -292,6 +338,7 @@ func (s *Server) handleOllamaChat(w http.ResponseWriter, r *http.Request) {
 // ollamaMaxToolRounds times, executing any requested tools between rounds.
 func (oc *ollamaClient) streamChat(
 	ctx context.Context,
+	model string,
 	messages []ollamaMessage,
 	tools []ollamaToolDef,
 	toolExecutor func(string, json.RawMessage) string,
@@ -301,7 +348,7 @@ func (oc *ollamaClient) streamChat(
 ) error {
 	msgs := messages
 	for round := 0; round < ollamaMaxToolRounds; round++ {
-		toolCalls, err := oc.doStreamRound(ctx, msgs, tools, w, flusher, debugLog)
+		toolCalls, err := oc.doStreamRound(ctx, model, msgs, tools, w, flusher, debugLog)
 		if err != nil {
 			return err
 		}
@@ -322,32 +369,41 @@ func (oc *ollamaClient) streamChat(
 			if debugLog {
 				log.Printf("[DEBUG] [Ollama] tool %q result (%d bytes)", tc.Function.Name, len(result))
 			}
-			msgs = append(msgs, ollamaMessage{Role: "tool", Content: result})
+			msg := ollamaMessage{Role: "tool", Content: result}
+			if tc.ID != "" {
+				msg.ToolCallID = tc.ID
+			}
+			msgs = append(msgs, msg)
 		}
 	}
 	return nil
 }
 
-// doStreamRound performs one HTTP round-trip to Ollama /api/chat, streaming
-// text chunks as SSE data frames. It returns any tool calls present in the
-// final done chunk.
+// doStreamRound performs one HTTP round-trip to the configured AI backend, streaming
+// text chunks as SSE data frames. It returns any tool calls present in the response.
+// Routes to the OpenAI-compatible implementation when the backend is detected as such.
 func (oc *ollamaClient) doStreamRound(
 	ctx context.Context,
+	model string,
 	messages []ollamaMessage,
 	tools []ollamaToolDef,
 	w io.Writer,
 	flusher http.Flusher,
 	debugLog bool,
 ) ([]ollamaToolCall, error) {
+	if oc.effectiveAPIType() == "openai" {
+		return oc.doStreamRoundOpenAI(ctx, model, messages, tools, w, flusher, debugLog)
+	}
+
 	reqBody := ollamaChatRequest{
-		Model:    oc.cfg.Model,
+		Model:    model,
 		Messages: messages,
 		Tools:    tools,
 		Stream:   true,
 	}
 	if debugLog {
 		msgJSON, _ := json.MarshalIndent(reqBody, "", "  ")
-		log.Printf("[DEBUG] [Ollama] Full Request Sent to Ollama:\n%s", string(msgJSON))
+		log.Printf("[DEBUG] [Ollama] full request:\n%s", string(msgJSON))
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -358,6 +414,9 @@ func (oc *ollamaClient) doStreamRound(
 	// Use a fresh http.Client with the configured timeout.
 	httpClient := &http.Client{Timeout: oc.timeout}
 	apiURL := strings.TrimRight(oc.cfg.URL, "/") + "/api/chat"
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama] POST %s (model=%s)", apiURL, model)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
 	if err != nil {
@@ -370,6 +429,10 @@ func (oc *ollamaClient) doStreamRound(
 		return nil, fmt.Errorf("connect to ollama: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama] HTTP %d from %s", resp.StatusCode, apiURL)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -425,6 +488,152 @@ func (oc *ollamaClient) doStreamRound(
 	return toolCalls, scanner.Err()
 }
 
+// doStreamRoundOpenAI performs one HTTP round-trip to an OpenAI-compatible /v1/chat/completions
+// endpoint, streaming text chunks as SSE data frames. Tool call arguments are accumulated
+// across multiple delta chunks before being returned.
+func (oc *ollamaClient) doStreamRoundOpenAI(
+	ctx context.Context,
+	model string,
+	messages []ollamaMessage,
+	tools []ollamaToolDef,
+	w io.Writer,
+	flusher http.Flusher,
+	debugLog bool,
+) ([]ollamaToolCall, error) {
+	reqBody := ollamaChatRequest{
+		Model:    model,
+		Messages: messages,
+		Tools:    tools,
+		Stream:   true,
+	}
+	if debugLog {
+		msgJSON, _ := json.MarshalIndent(reqBody, "", "  ")
+		log.Printf("[DEBUG] [Ollama/OpenAI] full request:\n%s", string(msgJSON))
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpClient := &http.Client{Timeout: oc.timeout}
+	apiURL := strings.TrimRight(oc.cfg.URL, "/") + "/v1/chat/completions"
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama/OpenAI] POST %s (model=%s)", apiURL, model)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect to openai-compat: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama/OpenAI] HTTP %d from %s", resp.StatusCode, apiURL)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	scanner := bufio.NewScanner(io.LimitReader(resp.Body, ollamaMaxResponse))
+	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+
+	// Accumulate streaming tool call fragments keyed by index.
+	type toolCallAccum struct {
+		id   string
+		name string
+		args strings.Builder
+	}
+	accumMap := make(map[int]*toolCallAccum)
+
+	var fullResponse strings.Builder
+	var finishReason string
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk openAIStreamChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			if debugLog {
+				log.Printf("[DEBUG] [Ollama/OpenAI] skipped malformed chunk: %s", payload)
+			}
+			continue
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		choice := chunk.Choices[0]
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			finishReason = *choice.FinishReason
+		}
+		for _, tc := range choice.Delta.ToolCalls {
+			if _, ok := accumMap[tc.Index]; !ok {
+				accumMap[tc.Index] = &toolCallAccum{}
+			}
+			a := accumMap[tc.Index]
+			if tc.ID != "" {
+				a.id = tc.ID
+			}
+			if tc.Function.Name != "" {
+				a.name = tc.Function.Name
+			}
+			a.args.WriteString(tc.Function.Arguments)
+		}
+		if choice.Delta.Content != "" {
+			if debugLog {
+				fullResponse.WriteString(choice.Delta.Content)
+			}
+			s := strings.ReplaceAll(choice.Delta.Content, "\n", "\\n")
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", s)
+			flusher.Flush()
+		}
+	}
+
+	if debugLog && fullResponse.Len() > 0 {
+		log.Printf("[DEBUG] [Ollama/OpenAI] output response:\n%s", fullResponse.String())
+	}
+
+	if finishReason != "tool_calls" || len(accumMap) == 0 {
+		return nil, scanner.Err()
+	}
+
+	toolCalls := make([]ollamaToolCall, len(accumMap))
+	for i, a := range accumMap {
+		if i < len(toolCalls) {
+			toolCalls[i] = ollamaToolCall{
+				ID: a.id,
+				Function: ollamaCallFunc{
+					Name:      a.name,
+					Arguments: json.RawMessage(a.args.String()),
+				},
+			}
+		}
+	}
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama/OpenAI] %d tool call(s) requested", len(toolCalls))
+	}
+	return toolCalls, scanner.Err()
+}
+
 // handleOllamaModels returns the list of models available in the Ollama instance.
 func (s *Server) handleOllamaModels(w http.ResponseWriter, r *http.Request) {
 	if s.ollama == nil || !s.ollama.cfg.Enabled {
@@ -436,8 +645,12 @@ func (s *Server) handleOllamaModels(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
-	models, err := s.ollama.fetchModels(r.Context())
+	debugLog := s.cfg.Logging.Enabled && s.cfg.Logging.Level == "debug"
+	models, err := s.ollama.fetchModels(r.Context(), debugLog)
 	if err != nil {
+		if debugLog {
+			log.Printf("[DEBUG] [Ollama] fetchModels failed: %v", err)
+		}
 		jsonError(w, fmt.Sprintf("ollama unavailable: %v", err), http.StatusBadGateway)
 		return
 	}
@@ -445,10 +658,51 @@ func (s *Server) handleOllamaModels(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"models": models})
 }
 
-// fetchModels queries Ollama /api/tags and returns the list of available model names.
-func (oc *ollamaClient) fetchModels(ctx context.Context) ([]string, error) {
+// fetchModels returns the list of available model names, auto-detecting the backend API
+// on the first call. It tries the native Ollama /api/tags endpoint first; if that fails
+// it falls back to the OpenAI-compatible /v1/models endpoint and caches the result.
+func (oc *ollamaClient) fetchModels(ctx context.Context, debugLog bool) ([]string, error) {
+	// Use cached detection if available.
+	oc.mu.RLock()
+	detected := oc.detectedAPI
+	oc.mu.RUnlock()
+
+	if detected == "openai" {
+		return oc.fetchModelsOpenAI(ctx, debugLog)
+	}
+
+	// Try native Ollama API.
+	names, err := oc.fetchModelsOllama(ctx, debugLog)
+	if err == nil {
+		oc.mu.Lock()
+		oc.detectedAPI = "ollama"
+		oc.mu.Unlock()
+		return names, nil
+	}
+
+	// Native API failed — try OpenAI-compatible fallback.
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama] native API probe failed (%v), trying OpenAI-compatible", err)
+	} else {
+		log.Printf("[Ollama] native API not available, trying OpenAI-compatible endpoint")
+	}
+	names, err = oc.fetchModelsOpenAI(ctx, debugLog)
+	if err == nil {
+		oc.mu.Lock()
+		oc.detectedAPI = "openai"
+		oc.mu.Unlock()
+		log.Printf("[Ollama] detected OpenAI-compatible API at %s", oc.cfg.URL)
+	}
+	return names, err
+}
+
+// fetchModelsOllama queries the native Ollama /api/tags endpoint.
+func (oc *ollamaClient) fetchModelsOllama(ctx context.Context, debugLog bool) ([]string, error) {
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	apiURL := strings.TrimRight(oc.cfg.URL, "/") + "/api/tags"
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama] fetchModels: GET %s", apiURL)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -458,6 +712,9 @@ func (oc *ollamaClient) fetchModels(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("connect to ollama: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama] fetchModels: HTTP %d", resp.StatusCode)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ollama returned %d", resp.StatusCode)
 	}
@@ -474,6 +731,51 @@ func (oc *ollamaClient) fetchModels(ctx context.Context) ([]string, error) {
 		if m.Name != "" {
 			names = append(names, m.Name)
 		}
+	}
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama] fetchModels: found %d model(s)", len(names))
+	}
+	return names, nil
+}
+
+// fetchModelsOpenAI queries an OpenAI-compatible /v1/models endpoint.
+func (oc *ollamaClient) fetchModelsOpenAI(ctx context.Context, debugLog bool) ([]string, error) {
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	apiURL := strings.TrimRight(oc.cfg.URL, "/") + "/v1/models"
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama/OpenAI] fetchModels: GET %s", apiURL)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect to openai-compat: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama/OpenAI] fetchModels: HTTP %d", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("api returned %d", resp.StatusCode)
+	}
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&result); err != nil {
+		return nil, fmt.Errorf("parse models: %w", err)
+	}
+	names := make([]string, 0, len(result.Data))
+	for _, m := range result.Data {
+		if m.ID != "" {
+			names = append(names, m.ID)
+		}
+	}
+	if debugLog {
+		log.Printf("[DEBUG] [Ollama/OpenAI] fetchModels: found %d model(s)", len(names))
 	}
 	return names, nil
 }

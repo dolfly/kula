@@ -130,7 +130,7 @@ func TestOllamaStreamChat_Integration(t *testing.T) {
 	msgs := []ollamaMessage{{Role: "user", Content: "check system"}}
 
 	rec := httptest.NewRecorder()
-	err := client.streamChat(context.Background(), msgs, nil, nil, rec, rec, false)
+	err := client.streamChat(context.Background(), cfg.Model, msgs, nil, nil, rec, rec, false)
 	if err != nil {
 		t.Fatalf("streamChat error: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestOllamaStreamChat_Unreachable(t *testing.T) {
 	cfg := config.OllamaConfig{Enabled: true, URL: "http://127.0.0.1:1", Model: "llama3", Timeout: "1s"}
 	client := newOllamaClient(cfg)
 	rec := httptest.NewRecorder()
-	err := client.streamChat(context.Background(), nil, nil, nil, rec, rec, false)
+	err := client.streamChat(context.Background(), cfg.Model, nil, nil, nil, rec, rec, false)
 	if err == nil {
 		t.Error("expected error connecting to unreachable server, got nil")
 	}
@@ -361,7 +361,7 @@ func TestOllamaStreamChat_ToolLoop(t *testing.T) {
 
 	tools := []ollamaToolDef{metricsToolDef()}
 	rec := httptest.NewRecorder()
-	err := client.streamChat(context.Background(), []ollamaMessage{{Role: "user", Content: "how's cpu?"}}, tools, executor, rec, rec, false)
+	err := client.streamChat(context.Background(), cfg.Model, []ollamaMessage{{Role: "user", Content: "how's cpu?"}}, tools, executor, rec, rec, false)
 	if err != nil {
 		t.Fatalf("streamChat: %v", err)
 	}
