@@ -140,12 +140,19 @@ func (a *AuthManager) ValidateCredentials(username, password string) bool {
 		return true
 	}
 
-	if subtle.ConstantTimeCompare([]byte(username), []byte(a.cfg.Username)) != 1 {
-		return false
+	if subtle.ConstantTimeCompare([]byte(username), []byte(a.cfg.Username)) == 1 {
+		hash := HashPassword(password, a.cfg.PasswordSalt, a.cfg.Argon2)
+		return subtle.ConstantTimeCompare([]byte(hash), []byte(a.cfg.PasswordHash)) == 1
 	}
 
-	hash := HashPassword(password, a.cfg.PasswordSalt, a.cfg.Argon2)
-	return subtle.ConstantTimeCompare([]byte(hash), []byte(a.cfg.PasswordHash)) == 1
+	for _, u := range a.cfg.Users {
+		if subtle.ConstantTimeCompare([]byte(username), []byte(u.Username)) == 1 {
+			hash := HashPassword(password, u.PasswordSalt, a.cfg.Argon2)
+			return subtle.ConstantTimeCompare([]byte(hash), []byte(u.PasswordHash)) == 1
+		}
+	}
+
+	return false
 }
 
 // CreateSession creates a new authenticated session.

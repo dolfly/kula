@@ -145,6 +145,14 @@ web:
       time: 3
       memory: 32768 # double the OWASP minimum
       threads: 4
+    # Additional users (optional). Each user uses the same argon2 parameters above.
+    # users:
+    #   - username: user1
+    #     password_hash: ""
+    #     password_salt: ""
+    #   - username: user2
+    #     password_hash: ""
+    #     password_salt: ""
 
 # Application monitoring
 # These modules appear under the "Applications" section in the dashboard.

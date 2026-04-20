@@ -119,6 +119,13 @@ type AuthConfig struct {
 	PasswordSalt   string        `yaml:"password_salt"`
 	SessionTimeout time.Duration `yaml:"session_timeout"`
 	Argon2         Argon2Config  `yaml:"argon2"`
+	Users          []UserConfig  `yaml:"users"`
+}
+
+type UserConfig struct {
+	Username     string `yaml:"username"`
+	PasswordHash string `yaml:"password_hash"`
+	PasswordSalt string `yaml:"password_salt"`
 }
 
 type Argon2Config struct {
