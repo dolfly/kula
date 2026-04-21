@@ -274,7 +274,7 @@ func validateStatusURL(rawURL string) error {
 
 ## 4. Code Quality Findings
 
-### QUAL-01: Global Mutable Variable for CPU Temperature Sensors
+### QUAL-01: Global Mutable Variable for CPU Temperature Sensors ⚠️ PARTIALLY VALID
 
 **Severity: MEDIUM**  
 **File:** `internal/collector/cpu.go:23-27`
@@ -287,6 +287,8 @@ var (
     sysTempSensors []sysSensor  // package-level mutable global
 )
 ```
+
+**Validation notes:** The thread-safety concern is theoretical — all `Collect()` calls are serialized through a single ticker-driven goroutine, so concurrent access to `sysTempSensors` cannot occur in the current architecture. No actual race condition exists. However, the **testability concern is valid**: tests cannot easily reset sensor discovery state between runs.
 
 **Recommendation:** Move the sensor cache into the `Collector` struct where it belongs, alongside the other state:
 
@@ -307,12 +309,14 @@ func (c *Collector) collectCPUTemperature() (float64, []CPUTempSensor) {
 
 ---
 
-### QUAL-02: Duplicate Aggregation Logic — `minSample` and `maxSample` Are Nearly Identical
+### QUAL-02: Duplicate Aggregation Logic — `minSample` and `maxSample` Are Nearly Identical ✅ VALID
 
 **Severity: LOW**  
 **File:** `internal/storage/store.go:429-562`
 
 The `minSample` and `maxSample` functions are almost identical — they differ only in the comparison operator (`<` vs `>` for `minF`/`maxF`). This violates the DRY principle and doubles the maintenance burden. Any new metric field must be added to both functions identically.
+
+**Validation notes:** Confirmed. Both functions are exactly 66 lines each with identical control flow (nil checks, struct copy, 6 CPU fields, 4 LoadAvg fields, 4 Memory/Swap fields, Disk device loop, Network interface loop). The only difference is `minF`/`minU` vs `maxF`/`maxU` calls.
 
 ```go
 // Current: Two 65-line functions that differ by one operator each
@@ -346,12 +350,14 @@ var maxSample = func(a, b *collector.Sample) *collector.Sample {
 
 ---
 
-### QUAL-03: Error Handling — Silent Failures Throughout Collectors
+### QUAL-03: Error Handling — Silent Failures Throughout Collectors ✅ VALID
 
 **Severity: MEDIUM**  
 **Files:** Multiple collector files
 
 Most collector functions silently return empty/zero values on errors. While this is intentional for resilience (a monitoring tool should not crash if one metric is unavailable), it makes debugging very difficult. Errors in reading `/proc` files, parsing values, or accessing hardware sensors are swallowed without any indication to the operator.
+
+**Validation notes:** Confirmed. `collectCPU()`, `collectLoadAvg()`, `collectMemory()`, `collectSwap()`, and `parseNetDev()` all return zero values on read/parse failure with no logging. Only scattered exceptions exist: disk warns about configured-but-missing devices; CPU temperature has debug-mode logging; nginx logs parse errors. No aggregate health or error-count mechanism exists anywhere in the codebase.
 
 ```go
 // Current pattern (repeated across many collectors):
@@ -380,12 +386,14 @@ func (c *Collector) Health() []CollectorHealth {
 
 ---
 
-### QUAL-04: `process.go` — Reads `/proc/[pid]/stat` for Every Process Every Second
+### QUAL-04: `process.go` — Reads `/proc/[pid]/stat` for Every Process Every Second ✅ VALID
 
 **Severity: MEDIUM (Performance + Quality)**  
 **File:** `internal/collector/process.go:10-63`
 
 The `collectProcesses` function iterates over all PIDs in `/proc`, reads each `/proc/[pid]/stat` file, and additionally reads `/proc/[pid]/task` for thread counts. On systems with thousands of processes, this creates significant I/O pressure. The function also allocates a new `os.ReadDir` call and opens/stat individual files without any caching or batching.
+
+**Validation notes:** Confirmed. `os.ReadDir("/proc/[pid]/task")` is called for every PID at line 55-59. Combined with `os.ReadFile("/proc/[pid]/stat")` at line 31, that is two I/O operations per process per tick. No caching, sampling, or configurable sub-interval exists; `collectProcesses()` is called directly from `Collect()` on the 1-second ticker.
 
 ```go
 // Current: O(n) file opens per collection cycle
@@ -411,7 +419,7 @@ type CollectionConfig struct {
 
 ---
 
-### QUAL-05: Binary Codec Manual Offset Tracking Is Fragile
+### QUAL-05: Binary Codec Manual Offset Tracking Is Fragile ⚠️ PARTIALLY VALID
 
 **Severity: LOW**  
 **File:** `internal/storage/codec.go`
@@ -428,6 +436,8 @@ const fixedBlockSize = 218
 // ... (many more)
 ```
 
+**Validation notes:** Partially valid. The manual `fixedBlockSize = 218` constant is real and has no compile-time assertion. However, the "silently corrupt data" claim is overstated — misalignment would produce a truncation error at decode time (not silent corruption), due to the 4-byte length prefix framing every record. Additionally, the codec has: presence bytes used as version tags (format changes are versioned, not silent), round-trip tests in `codec_test.go`, explicit backward-compatibility rules documented in the file header, and version migration tests. The risk of undetected breakage is low.
+
 **Recommendation:** Consider using Go's `encoding/binary` with a structured approach, or generate the codec from a schema. At a minimum, add compile-time assertions that verify the size of the fixed block:
 
 ```go
@@ -442,12 +452,14 @@ func init() {
 
 ---
 
-### QUAL-06: Session Persistence Stores CSRF Tokens in Plaintext on Disk
+### QUAL-06: Session Persistence Stores CSRF Tokens in Plaintext on Disk ✅ VALID (with caveat)
 
 **Severity: LOW**  
 **File:** `internal/web/auth.go:292-318`
 
 The `SaveSessions` function writes session data including CSRF tokens to `sessions.json` on disk. While the session tokens themselves are hashed before storage (good), the CSRF tokens are stored in plaintext. If an attacker gains read access to the storage directory, they can extract CSRF tokens and potentially forge requests for active sessions.
+
+**Validation notes:** Confirmed — `hashedToken` is SHA-256 hashed before storage but `sess.csrfToken` is written in plaintext. The asymmetric protection is a legitimate observation. However, the "potentially forge requests" impact is overstated: a CSRF token from disk is only useful if the attacker also has the victim's `HttpOnly` + `SameSite: Strict` session cookie, which cannot be obtained from `sessions.json` (the stored token is already hashed and cannot be reversed to the raw cookie value). The file is also protected by `0600` permissions in a `0750` directory.
 
 ```go
 // Current:
@@ -470,25 +482,27 @@ func deriveCSRFToken(hashedToken string) string {
 
 ---
 
-### QUAL-07: `getClientIP` Rightmost-XFF Logic Is Counter-Intuitive
+### QUAL-07: `getClientIP` Rightmost-XFF Logic Is Counter-Intuitive ❌ NOT VALID
 
 **Severity: LOW**  
 **File:** `internal/web/server.go:753-768`
 
-The `getClientIP` function takes the rightmost entry from `X-Forwarded-For` when `trust_proxy` is enabled. The comment explains this is because "the rightmost IP is the one appended by our trusted proxy," but this is only correct for a single-proxy deployment. For multi-proxy setups (e.g., CDN → load balancer → Kula), the rightmost IP might be the load balancer's internal IP, not the client's real IP.
+~~The rightmost-XFF approach is only correct for single-proxy deployments and is counter-intuitive without documentation.~~
 
-**Recommendation:** Document the expected proxy topology explicitly in the configuration file and consider adding a `trusted_proxy_count` configuration option, as detailed in SEC-02.
+**Finding is not valid.** This duplicates SEC-02 (already marked NOT VALID). The code contains a clear inline comment explaining the rationale: *"The rightmost IP is the one appended by our trusted proxy. Leftmost IPs are client-controlled and can be spoofed."* The logic is correct for the documented single-proxy topology and is not counter-intuitive given that comment. No action needed.
 
 ---
 
 ## 5. Performance Findings
 
-### PERF-01: Storage Write Path Holds Global Mutex During Entire Write + Aggregation
+### PERF-01: Storage Write Path Holds Global Mutex During Entire Write + Aggregation ✅ VALID
 
 **Severity: HIGH**  
 **File:** `internal/storage/store.go:174-237`
 
 The `WriteSample` method acquires `s.mu.Lock()` for the entire duration of writing to tier 0, aggregating tier 1 and tier 2, and invalidating the query cache. This means that all read queries (which need `RLock`) are blocked during the entire write path, including the relatively expensive aggregation operations. On a 1-second collection interval, this creates a contention point that can cause read latency spikes.
+
+**Validation notes:** Confirmed. `s.mu.Lock()` at line 175 is deferred until the function returns, covering all three `s.tiers[n].Write()` calls (disk I/O) and both `aggregateSamples()`/`aggregateAggregated()` calls. The query cache uses a separate `s.queryCacheMu` mutex (not `s.mu`), but all `QueryRange` / `QueryRangeWithMeta` calls acquire `s.mu.RLock()` and are blocked for the full write duration.
 
 ```go
 // Current: single mutex for entire write path
@@ -546,12 +560,14 @@ func (s *Store) WriteSample(sample *collector.Sample) error {
 
 ---
 
-### PERF-02: Ring Buffer ReadRange Performs Full Segment Scan Without Index
+### PERF-02: Ring Buffer ReadRange Performs Full Segment Scan Without Index ⚠️ PARTIALLY VALID
 
 **Severity: MEDIUM**  
 **File:** `internal/storage/tier.go:234-347`
 
 The `ReadRange` method scans the entire ring buffer segment linearly to find records within the requested time range. For a 250 MB tier with 1-second resolution (approximately 4 days of data), this means reading and parsing through potentially hundreds of thousands of records even if the user only requests the last 5 minutes. The optimization for v2 binary files (checking the oldest record of segment 2) helps in some cases, but the general case still requires a full scan.
+
+**Validation notes:** Partially valid. The "full scan" claim is overstated — three optimizations exist: (1) segment pre-filtering skips segment 1 entirely when the query `from` time falls within segment 2's range; (2) records are read with 1 MB buffered I/O; (3) a timestamp early-exit breaks the loop once records pass the `to` boundary. There is still no time-indexed binary search for the start of the range, so queries spanning a small window at the end of a large segment still scan from the beginning.
 
 ```go
 // Current: linear scan
@@ -578,12 +594,14 @@ type IndexEntry struct {
 
 ---
 
-### PERF-03: Query Cache Invalidated on Every WriteSample — Excessive GC Pressure
+### PERF-03: Query Cache Invalidated on Every WriteSample — Excessive GC Pressure ✅ VALID
 
 **Severity: MEDIUM**  
 **File:** `internal/storage/store.go:232-234`
 
 The query cache is completely replaced (by creating a new empty map) on every `WriteSample` call. This happens every second by default. Any cached results are immediately discarded, and the old map is garbage collected. If multiple clients are requesting history data simultaneously, this means every request hits the disk because the cache is always empty by the time it is checked.
+
+**Validation notes:** Confirmed. `s.queryCache = make(map[queryCacheKey]*HistoryResult)` runs unconditionally on every `WriteSample` call. The cache IS used — results are stored in `QueryRangeWithMeta` and checked on subsequent calls — but the 1-second destruction window means the effective hit rate is zero for any realistic concurrent query pattern.
 
 ```go
 // Current: full cache invalidation every second
@@ -623,12 +641,14 @@ func (s *Store) invalidateQueryCache(newTS time.Time) {
 
 ---
 
-### PERF-04: WebSocket Broadcast Clones Data for Every Client on Every Tick
+### PERF-04: WebSocket Broadcast Clones Data for Every Client on Every Tick ❌ NOT VALID
 
 **Severity: LOW**  
 **File:** `internal/web/server.go:695-711`
 
-The `BroadcastSample` method marshals the sample to JSON once (good), but the `broadcast` method sends the same byte slice to all clients via channels. While this is efficient in terms of marshaling, the `sendCh` channel buffer of 64 entries per client means that if there are 100 WebSocket clients, there are 100 × 64 = 6,400 buffered messages in memory. With each message being ~2-5 KB of JSON, this could consume 12-32 MB of memory just for WebSocket buffers.
+~~With 100 WebSocket clients and a 64-entry channel buffer, there are 6,400 buffered messages in memory, potentially consuming 12-32 MB.~~
+
+**Finding is not valid.** The broadcast sends the **same `[]byte` pointer** to all client channels — no per-client data copying occurs. JSON marshaling happens once in `BroadcastSample`. Each channel slot holds a Go slice header (pointer + len + cap = 24 bytes on 64-bit), not a copy of the payload. Actual overhead: 100 clients × 64 slots × 24 bytes = ~150 KB of channel slot headers, not 12–32 MB. The underlying JSON data exists once and is shared by reference across all clients.
 
 ```go
 // Current:
@@ -654,12 +674,14 @@ default:
 
 ---
 
-### PERF-05: Gzip Middleware Does Not Check Content-Length Before Compressing
+### PERF-05: Gzip Middleware Does Not Check Content-Length Before Compressing ✅ VALID
 
 **Severity: LOW**  
 **File:** `internal/web/server.go:135-150`
 
 The gzip middleware compresses all responses regardless of their size. For very small responses (e.g., the `/health` endpoint returning "kula is healthy"), the gzip overhead (header + compression) can actually increase the response size. Most production-grade gzip middleware skips compression for responses below a configurable threshold (typically 512 bytes or 1 KB).
+
+**Validation notes:** Confirmed. The middleware checks `Upgrade`, `Accept-Encoding`, SSE `Accept`, and an Ollama path exclusion, but there is no size threshold. `gzip.Writer` is created immediately with no buffering layer that would allow measuring response size first. `Content-Length` is explicitly deleted because streaming compression cannot know the final size in advance.
 
 ```go
 // Current: compresses everything
@@ -685,12 +707,14 @@ const minCompressSize = 512
 
 ---
 
-### PERF-06: `aggregateSamples` Performs O(n*m) Lookups for Interface and Disk Matching
+### PERF-06: `aggregateSamples` Performs O(n*m) Lookups for Interface and Disk Matching ✅ VALID
 
 **Severity: LOW**  
 **File:** `internal/storage/store.go:693-737`
 
 When averaging network interface or disk device metrics across samples, the code uses a nested loop pattern: for each target interface, iterate over all interfaces in each sample to find the matching name. This is O(n × m) where n is the number of samples and m is the number of devices per sample.
+
+**Validation notes:** Confirmed. Triple nested loops exist for network interfaces, disk devices, CPU sensors, and containers — all follow the same `for target → for sample → for device: if name == target` pattern with no intermediate map. No map-based optimization is present anywhere in `aggregateSamples`.
 
 ```go
 // Current: O(n*m) lookup
