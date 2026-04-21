@@ -28,8 +28,8 @@ Kula is a well-architected Go application for Linux server monitoring with a mod
 
 ### 1.1 High Severity Issues
 
-#### SEC-H1: PostgreSQL Password Stored in Plain Text in Configuration
-**File:** `internal/config/config.go:174`  
+#### SEC-H1: PostgreSQL Password Stored in Plain Text in Configuration ✅ FIXED
+**File:** `internal/config/config.go`  
 **Severity:** HIGH
 
 The PostgreSQL configuration stores the database password in plain text:
@@ -44,31 +44,17 @@ type PostgresConfig struct {
 
 **Risk:** Configuration files may be world-readable or committed to version control, exposing credentials.
 
-**Recommendation:**
-- Support environment variable override for sensitive credentials
-- Consider using a secrets manager or encrypted configuration
-- At minimum, document the security risk in configuration examples
+**Fix applied:** Added `KULA_POSTGRES_PASSWORD` environment variable override in `Load()`, consistent with the existing `KULA_PORT`, `KULA_LISTEN`, `KULA_DIRECTORY`, etc. overrides. When set, it overwrites `cfg.Applications.Postgres.Password` before the config is returned, so no plain-text password needs to be stored in the config file.
 
 ```go
-// Recommended improvement
-type PostgresConfig struct {
-    Password string `yaml:"password"`
-    PasswordEnv string `yaml:"password_env"` // e.g., "KULA_POSTGRES_PASSWORD"
-}
-
-func (p *PostgresConfig) GetPassword() string {
-    if p.PasswordEnv != "" {
-        if envPass := os.Getenv(p.PasswordEnv); envPass != "" {
-            return envPass
-        }
-    }
-    return p.Password
+if pass := os.Getenv("KULA_POSTGRES_PASSWORD"); pass != "" {
+    cfg.Applications.Postgres.Password = pass
 }
 ```
 
 ---
 
-#### SEC-H2: Session File Permissions May Be Insufficient
+#### SEC-H2: Session File Permissions May Be Insufficient ❌ NOT VALID
 **File:** `internal/web/auth.go:317`  
 **Severity:** HIGH
 
@@ -76,34 +62,13 @@ func (p *PostgresConfig) GetPassword() string {
 return os.WriteFile(path, data, 0600)
 ```
 
-While `0600` permissions are used, there's no verification that the parent directory has secure permissions. If the storage directory is world-readable, session files could be accessed by other users.
+~~While `0600` permissions are used, there's no verification that the parent directory has secure permissions. If the storage directory is world-readable, session files could be accessed by other users.~~
 
-**Recommendation:**
-```go
-func (a *AuthManager) SaveSessions() error {
-    // Ensure parent directory has secure permissions
-    if err := os.MkdirAll(a.storageDir, 0700); err != nil {
-        return fmt.Errorf("creating storage directory: %w", err)
-    }
-    
-    // Verify directory permissions
-    if info, err := os.Stat(a.storageDir); err == nil {
-        mode := info.Mode().Perm()
-        if mode&0077 != 0 {
-            log.Printf("WARNING: Storage directory %s has overly permissive permissions: %04o", 
-                a.storageDir, mode)
-        }
-    }
-    
-    // Write with restrictive permissions
-    path := filepath.Join(a.storageDir, "sessions.json")
-    return os.WriteFile(path, data, 0600)
-}
-```
+**Finding is not valid.** The storage directory is always created with `0750` permissions (not `0755`), as seen in `internal/sandbox/sandbox.go:60`, `internal/storage/store.go:70`, and `internal/config/config.go:453`. With `0750`, other users (non-owner, non-group) have no access to the directory at all. The session file itself is `0600` (owner-read/write only). The combination is already secure.
 
 ---
 
-#### SEC-H3: Potential Integer Overflow in Port Parsing
+#### SEC-H3: Potential Integer Overflow in Port Parsing ❌ NOT VALID
 **File:** `internal/config/config.go:285-291`  
 **Severity:** HIGH
 
@@ -116,16 +81,9 @@ if port64, err := strconv.ParseInt(portStr, 10, 32); err == nil {
 }
 ```
 
-The code correctly validates the port range, but the conversion from `int64` to `int` could overflow on 32-bit architectures where `int` is 32 bits but the upper bits could be problematic.
+~~The conversion from `int64` to `int` could overflow on 32-bit architectures.~~
 
-**Recommendation:**
-```go
-if port64, err := strconv.ParseInt(portStr, 10, 32); err == nil {
-    if port64 > 0 && port64 <= 65535 {
-        cfg.Web.Port = int(port64) // Safe: range validated before conversion
-    }
-}
-```
+**Finding is not valid.** The `bitSize=32` argument to `strconv.ParseInt` guarantees the returned `int64` value fits within the `int32` range ([-2³¹, 2³¹-1]). On 32-bit platforms `int` is 32 bits (identical range), and on 64-bit platforms `int` is 64 bits — in neither case can the conversion overflow. No code change required.
 
 ---
 
@@ -613,8 +571,8 @@ if s.cfg.Logging.Enabled && (s.cfg.Logging.Level == "perf" || s.cfg.Logging.Leve
 
 ### Immediate Actions (High Priority)
 
-1. **SEC-H1:** Implement environment variable support for PostgreSQL passwords
-2. **SEC-H2:** Add storage directory permission verification
+1. **SEC-H1:** ✅ FIXED — Added `KULA_POSTGRES_PASSWORD` env var override in `Load()`, consistent with existing env overrides
+2. **SEC-H2:** ❌ NOT VALID — Storage directory already created with `0750`; no action needed
 3. **QUAL-H1:** Standardize error handling across all HTTP handlers
 4. **QUAL-H2:** Add context cancellation to WebSocket hub
 

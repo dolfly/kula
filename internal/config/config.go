@@ -334,6 +334,9 @@ func Load(path string) (*Config, error) {
 	if dir := os.Getenv("KULA_DIRECTORY"); dir != "" {
 		cfg.Storage.Directory = dir
 	}
+	if pass := os.Getenv("KULA_POSTGRES_PASSWORD"); pass != "" {
+		cfg.Applications.Postgres.Password = pass
+	}
 
 	// Expand ~/ shorthand to the user's home directory
 	if len(cfg.Storage.Directory) > 1 && cfg.Storage.Directory[:2] == "~/" {
