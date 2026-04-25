@@ -308,11 +308,11 @@ func DefaultConfig() *Config {
 				SSLMode: "disable",
 			},
 			Mysql: MysqlConfig{
-				Enabled: false,
-				Host:    "localhost",
-				Port:    3306,
-				User:    "kula_monitor",
-				DBName:  "mysql",
+				Enabled:  false,
+				Host:     "localhost",
+				Port:     3306,
+				User:     "kula_monitor",
+				DBName:   "",
 			},
 		},
 		TUI: TUIConfig{

@@ -31,6 +31,7 @@ type mysqlCollector struct {
 	prev         mysqlRaw
 	debug        bool
 	wasConnected bool
+	lastErr      string
 	timeout      time.Duration
 }
 
@@ -61,6 +62,7 @@ func (mc *mysqlCollector) connect() error {
 		_ = mc.db.Close()
 		mc.db = nil
 		mc.prev = mysqlRaw{}
+		mc.lastErr = ""
 		if mc.wasConnected {
 			log.Printf("[mysql] connection to %q lost, will retry", mc.dbName)
 			mc.wasConnected = false
@@ -69,6 +71,11 @@ func (mc *mysqlCollector) connect() error {
 
 	db, err := sql.Open("mysql", mc.dsn)
 	if err != nil {
+		errStr := err.Error()
+		if errStr != mc.lastErr {
+			log.Printf("[mysql] failed to open database %q: %v", mc.dbName, err)
+			mc.lastErr = errStr
+		}
 		return fmt.Errorf("mysql open: %w", err)
 	}
 	db.SetMaxOpenConns(1)
@@ -79,9 +86,15 @@ func (mc *mysqlCollector) connect() error {
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
+		errStr := err.Error()
+		if errStr != mc.lastErr {
+			log.Printf("[mysql] failed to ping database %q: %v", mc.dbName, err)
+			mc.lastErr = errStr
+		}
 		return fmt.Errorf("mysql ping: %w", err)
 	}
 	mc.db = db
+	mc.lastErr = ""
 	if !mc.wasConnected {
 		log.Printf("[mysql] connected to database %q", mc.dbName)
 		mc.wasConnected = true

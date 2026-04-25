@@ -234,7 +234,7 @@ applications:
     dbname: "postgres"
     sslmode: "disable"
 
-  # MySQL monitoring
+  # MySQL / MariaDB monitoring
   # Connects via go-sql-driver/mysql. Supports TCP and Unix socket.
   # For Unix socket: set host to the socket path (e.g. /var/run/mysqld/mysqld.sock), port to 0.
   #
@@ -251,7 +251,9 @@ applications:
     port: 3306
     user: "kula_monitor"
     password: ""
-    dbname: "mysql"
+    # Database to connect to. Leave empty — SHOW GLOBAL STATUS and
+    # @@max_connections are server-wide and don't require a database.
+    dbname: ""
 
 # TUI settings
 tui:
