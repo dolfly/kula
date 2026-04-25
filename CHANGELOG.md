@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
-## [0.15.1] - TBA
+## [0.15.2-dev] - TBA
 
 ### Added
 
 - New env var: KULA_POSTGRES_PASSWORD
+- MySQL database monitoring
+- apache2 httpd Server monitoring
 
 ### Changed
 
