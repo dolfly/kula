@@ -10,7 +10,9 @@ Kula demonstrates strong security fundamentals with Argon2id password hashing, L
 
 ### 🔴 HIGH
 
-### H-1: Session Tokens Not Bound to Client Context (Session Hijacking)
+### [false positive] H-1: Session Tokens Not Bound to Client Context (Session Hijacking)
+
+> This is documented, by design. Enforcing IP binding breaks mobile clients roaming between networks.
 
 **File:** `internal/web/auth.go:184-203`
 **Severity:** High
@@ -42,7 +44,9 @@ A stolen session token (via XSS, network sniffing on non-TLS connections, or log
 
 ---
 
-### H-2: Prompt Injection via Ollama Context Field
+### [false positive] H-2: Prompt Injection via Ollama Context Field
+
+> DeepSeek claims an attacker can jailbreak the LLM by passing a malicious context payload. However, the "attacker" is the user themselves, and Kula's LLM proxy has no privileged tools (it can only query read-only metrics). This is self-exploitation with zero impact.
 
 **File:** `internal/web/ollama.go:783-824`
 **Severity:** High
@@ -202,7 +206,9 @@ While the URL is restricted to loopback, on systems where another process on loc
 
 ---
 
-### M-7: CSP Missing Explicit connect-src / img-src / font-src
+### [false positive] M-7: CSP Missing Explicit connect-src / img-src / font-src
+
+> DeepSeek complained about missing img-src and font-src. Kula uses default-src 'self', which securely covers all of these fallbacks.
 
 **File:** `internal/web/server.go:208`
 **Severity:** Medium
