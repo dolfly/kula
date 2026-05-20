@@ -7,21 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
-## [0.15.2-dev] - TBA
+## [0.16.0] - 2026-05-20
 
 ### Added
 
-- New env var: KULA_POSTGRES_PASSWORD
 - MySQL database monitoring
-- apache2 httpd Server monitoring
-
-### Changed
-
-- fix duplicate aggregation logic for minSample/maxSample
+- Apache httpd server monitoring (#17)
+- Unix socket support for the web server (#26)
+- Config options to customize security features (#21)
+- New env var: KULA_POSTGRES_PASSWORD
+- Reverse proxy helper script (addons/reverse_proxy.py)
 
 ### Fixed
 
 - PostgreSQL password is now properly single-quoted with libpq escaping
+- Fix pg_stat_bgwriter query for PostgreSQL 17+ (split into pg_stat_checkpointer / pg_stat_io)
+- Fix duplicate aggregation logic for minSample/maxSample
+- Fix inspect reporting false information when tier is full (#24)
+- Add missing permissions check for containers socket (#22)
 
 ## [0.15.0] - 2026-04-20
 
