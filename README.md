@@ -158,9 +158,9 @@ rm -f ${KULA_INSTALL}
 ### Standalone
 
 ```bash
-wget https://github.com/c0m4r/kula/releases/download/0.15.0/kula-0.15.0-amd64.tar.gz
-echo "92a189984672566cc3f31deee22926c25fbbf6370ba361f9b326fe43010b5d60 kula-0.15.0-amd64.tar.gz" | sha256sum -c || rm -f kula-0.15.0-amd64.tar.gz
-tar -xvf kula-0.15.0-amd64.tar.gz
+wget https://github.com/c0m4r/kula/releases/download/0.16.0/kula-0.16.0-amd64.tar.gz
+echo "0e13e8ac6feba89268e223c4975a3d31e1b9db91d6fe9550a0bb158fc25616fd kula-0.16.0-amd64.tar.gz" | sha256sum -c || rm -f kula-0.16.0-amd64.tar.gz
+tar -xvf kula-0.16.0-amd64.tar.gz
 cd kula
 ./kula
 ```
@@ -183,18 +183,18 @@ docker logs -f kula
 ### Debian / Ubuntu (.deb)
 
 ```bash
-wget https://github.com/c0m4r/kula/releases/download/0.15.0/kula-0.15.0-amd64.deb
-echo "de193f1561375c6e55089f3b5af22d63205f42d6118608e5093344cc6b119e60 kula-0.15.0-amd64.deb" | sha256sum -c || rm -f kula-0.15.0-amd64.deb
-sudo dpkg -i kula-0.15.0-amd64.deb
+wget https://github.com/c0m4r/kula/releases/download/0.16.0/kula-0.16.0-amd64.deb
+echo "b4edd589ed99e6053f9a74ed0e4e9511880e39e9582078d09aff94003a684dcb kula-0.16.0-amd64.deb" | sha256sum -c || rm -f kula-0.16.0-amd64.deb
+sudo dpkg -i kula-0.16.0-amd64.deb
 journalctl -f -t kula
 ```
 
 ### RHEL / Fedora / CentOS / Rocky / Alma (.rpm)
 
 ```bash
-wget https://github.com/c0m4r/kula/releases/download/0.15.0/kula-0.15.0-x86_64.rpm
-echo "36f1c968e7cbd7643a2d611221128d80596f27ff756bbee4dd5a33238a33cbb6 kula-0.15.0-x86_64.rpm" | sha256sum -c || rm -f kula-0.15.0-x86_64.rpm
-sudo rpm -i kula-0.15.0-x86_64.rpm
+wget https://github.com/c0m4r/kula/releases/download/0.16.0/kula-0.16.0-x86_64.rpm
+echo "2aba936feaf67c96c95070f22beae8c40a590adb2876d3f2b70e5a3595bd5fb6 kula-0.16.0-x86_64.rpm" | sha256sum -c || rm -f kula-0.16.0-x86_64.rpm
+sudo rpm -i kula-0.16.0-x86_64.rpm
 journalctl -f -t kula
 ```
 
@@ -316,10 +316,10 @@ All settings live in `config.yaml`. See [`config.example.yaml`](config.example.y
 # Build
 ./addonsh.build.sh
 
-# Build dev (Binary size: ~17MB)
+# Build dev (Binary size: ~20MB)
 CGO_ENABLED=0 go build -o kula ./cmd/kula/
 
-# Build prod (Binary size: ~12MB, xz: ~4MB)
+# Build prod (Binary size: ~14MB, xz: ~4MB)
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o kula ./cmd/kula/
 ```
 
