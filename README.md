@@ -42,7 +42,7 @@ stores them in a built-in tiered ring-buffer storage engine, and serves them thr
 | **Thermal** | CPU, GPU and Disk temperatures |
 | **Battery** | /sys/class/power_supply - power supply / battery status |
 | **Containers** | Docker, podman, raw cgroups |
-| **Applications** | PostgreSQL, nginx |
+| **Applications** | PostgreSQL, MySQL/MariaDB, nginx, apache2 |
 | **Custom** | Monitor anything with custom metrics |
 
 Note: Monitoring NVIDIA GPUs might require additional setup. Check [GPU monitoring](https://github.com/c0m4r/kula/wiki/GPU-monitoring).
