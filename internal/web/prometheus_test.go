@@ -77,6 +77,51 @@ func newTestStoreWithSample(t *testing.T) *storage.Store {
 		},
 		Process: collector.ProcessStats{Total: 120, Running: 2},
 		Self:    collector.SelfStats{CPUPercent: 0.5, MemRSS: 16 * 1024 * 1024, FDs: 20},
+		PSU: []collector.PowerSupplyStats{{
+			Name: "BAT0", Type: "Battery", Status: "Discharging",
+			Capacity: 87, VoltageV: 12.3, CurrentA: 1.1, PowerW: 13.5,
+			EnergyWhNow: 40.0, EnergyWhFull: 48.0,
+		}},
+		Apps: collector.ApplicationsStats{
+			Nginx: &collector.NginxStats{
+				ActiveConnections: 12, Accepts: 1000, Handled: 999, Requests: 5000,
+				AcceptsPS: 1.5, HandledPS: 1.5, RequestsPS: 7.5,
+				Reading: 1, Writing: 3, Waiting: 8,
+			},
+			Apache2: &collector.Apache2Stats{
+				BusyWorkers: 4, IdleWorkers: 16, TotalAccesses: 2500, TotalKBytes: 8000,
+				ReqPerSec: 2.5, BytesPerSec: 4096, BytesPerReq: 1638, CPULoad: 0.75,
+				Uptime: 3600, Waiting: 14, Reading: 1, Sending: 3, Keepalive: 0,
+				Starting: 0, DNS: 0, Closing: 1, Logging: 0, Graceful: 0,
+				IdleCleanup: 0, OpenSlots: 80,
+			},
+			Containers: []collector.ContainerStats{{
+				ID: "abc123", Name: "web",
+				CPUPct: 12.0, MemUsed: 128 * 1024 * 1024, MemLimit: 512 * 1024 * 1024,
+				MemPct: 25.0, NetRxBPS: 1024, NetTxBPS: 2048, DiskRBPS: 4096, DiskWBPS: 8192,
+			}},
+			Postgres: &collector.PostgresStats{
+				ActiveConns: 5, IdleConns: 10, IdleInTxConns: 1, WaitingConns: 0, MaxConns: 100,
+				TxCommitPS: 50.0, TxRollbackPS: 0.5,
+				TupFetchedPS: 1000, TupReturnedPS: 5000, TupInsertedPS: 10,
+				TupUpdatedPS: 5, TupDeletedPS: 1,
+				BlksReadPS: 20, BlksHitPS: 980, BlksHitPct: 98.0,
+				DeadlocksPS: 0,
+				DeadTuples: 100, LiveTuples: 10000, AutovacuumCount: 3,
+				BufCheckpointPS: 1, BufBackendPS: 2,
+				DBSizeBytes: 100 * 1024 * 1024,
+			},
+			Mysql: &collector.MysqlStats{
+				ThreadsConnected: 8, ThreadsRunning: 2, ThreadsCached: 4, MaxConnections: 150,
+				QueriesPS: 100, ComSelectPS: 80, ComInsertPS: 10, ComUpdatePS: 5, ComDeletePS: 1,
+				SlowQueriesPS: 0.1,
+				InnodbBufferPoolHitPct: 99.5, InnodbBPReadsPS: 5,
+				TableLocksWaitedPS: 0, RowLockWaitsPS: 0,
+			},
+			Custom: map[string][]collector.CustomMetricValue{
+				"my_app": {{Name: "queue_depth", Value: 42}},
+			},
+		},
 	}
 	if err := store.WriteSample(sample); err != nil {
 		t.Fatalf("WriteSample: %v", err)
@@ -132,6 +177,18 @@ func TestHandleMetrics(t *testing.T) {
 		"kula_processes_total",
 		"kula_self_cpu_percent",
 		"kula_self_memory_rss_bytes",
+		"kula_psu_capacity_percent",
+		"kula_nginx_active_connections",
+		"kula_nginx_requests_total",
+		"kula_apache2_busy_workers",
+		"kula_apache2_scoreboard",
+		"kula_container_cpu_percent",
+		"kula_container_memory_used_bytes",
+		"kula_postgres_connections_active",
+		"kula_postgres_buffer_cache_hit_percent",
+		"kula_mysql_threads_connected",
+		"kula_mysql_queries_per_second",
+		"kula_custom_metric",
 	}
 	for _, name := range mustContain {
 		if !strings.Contains(body, name) {

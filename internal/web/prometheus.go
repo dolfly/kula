@@ -325,6 +325,277 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ---- Power supplies ----------------------------------------------------
+	for _, psu := range d.PSU {
+		psuLbl := host + "," + lbl("name", psu.Name) + "," + lbl("type", psu.Type) + "," + lbl("status", psu.Status)
+		if psu.Capacity > 0 {
+			gauge("kula_psu_capacity_percent",
+				"Power supply charge level as a percentage.",
+				psuLbl, float64(psu.Capacity))
+		}
+		if psu.VoltageV != 0 {
+			gauge("kula_psu_voltage_volts",
+				"Power supply voltage in volts.",
+				psuLbl, psu.VoltageV)
+		}
+		if psu.CurrentA != 0 {
+			gauge("kula_psu_current_amperes",
+				"Power supply current in amperes.",
+				psuLbl, psu.CurrentA)
+		}
+		if psu.PowerW != 0 {
+			gauge("kula_psu_power_watts",
+				"Power supply power draw in watts.",
+				psuLbl, psu.PowerW)
+		}
+		if psu.EnergyWhFull > 0 {
+			gauge("kula_psu_energy_now_wh",
+				"Current stored energy in watt-hours.",
+				psuLbl, psu.EnergyWhNow)
+			gauge("kula_psu_energy_full_wh",
+				"Full-charge energy capacity in watt-hours.",
+				psuLbl, psu.EnergyWhFull)
+		}
+	}
+
+	// ---- Applications: Nginx -----------------------------------------------
+	if n := d.Apps.Nginx; n != nil {
+		gauge("kula_nginx_active_connections",
+			"Nginx active client connections.",
+			host, float64(n.ActiveConnections))
+		gauge("kula_nginx_reading",
+			"Nginx connections reading request headers.",
+			host, float64(n.Reading))
+		gauge("kula_nginx_writing",
+			"Nginx connections writing response back to client.",
+			host, float64(n.Writing))
+		gauge("kula_nginx_waiting",
+			"Nginx idle keep-alive connections.",
+			host, float64(n.Waiting))
+		gauge("kula_nginx_accepts_per_second",
+			"Nginx accepted connections per second.",
+			host, n.AcceptsPS)
+		gauge("kula_nginx_handled_per_second",
+			"Nginx handled connections per second.",
+			host, n.HandledPS)
+		gauge("kula_nginx_requests_per_second",
+			"Nginx client requests per second.",
+			host, n.RequestsPS)
+		counter("kula_nginx_accepts_total",
+			"Total accepted client connections since Nginx start.",
+			host, float64(n.Accepts))
+		counter("kula_nginx_handled_total",
+			"Total handled client connections since Nginx start.",
+			host, float64(n.Handled))
+		counter("kula_nginx_requests_total",
+			"Total client requests since Nginx start.",
+			host, float64(n.Requests))
+	}
+
+	// ---- Applications: Apache2 ---------------------------------------------
+	if a := d.Apps.Apache2; a != nil {
+		gauge("kula_apache2_busy_workers",
+			"Apache2 workers currently handling requests.",
+			host, float64(a.BusyWorkers))
+		gauge("kula_apache2_idle_workers",
+			"Apache2 idle workers available to serve requests.",
+			host, float64(a.IdleWorkers))
+		gauge("kula_apache2_open_slots",
+			"Apache2 open (unused) worker slots.",
+			host, float64(a.OpenSlots))
+		gauge("kula_apache2_cpu_load",
+			"Apache2 server CPU load (percentage).",
+			host, a.CPULoad)
+		gauge("kula_apache2_uptime_seconds",
+			"Apache2 server uptime in seconds.",
+			host, float64(a.Uptime))
+		gauge("kula_apache2_requests_per_second",
+			"Apache2 requests served per second.",
+			host, a.ReqPerSec)
+		gauge("kula_apache2_bytes_per_second",
+			"Apache2 bytes served per second.",
+			host, a.BytesPerSec)
+		gauge("kula_apache2_bytes_per_request",
+			"Average response size in bytes per Apache2 request.",
+			host, a.BytesPerReq)
+		counter("kula_apache2_accesses_total",
+			"Total Apache2 accesses since server start.",
+			host, float64(a.TotalAccesses))
+		counter("kula_apache2_kbytes_total",
+			"Total kilobytes served by Apache2 since server start.",
+			host, float64(a.TotalKBytes))
+		for state, val := range map[string]int{
+			"waiting":      a.Waiting,
+			"reading":      a.Reading,
+			"sending":      a.Sending,
+			"keepalive":    a.Keepalive,
+			"starting":     a.Starting,
+			"dns":          a.DNS,
+			"closing":      a.Closing,
+			"logging":      a.Logging,
+			"graceful":     a.Graceful,
+			"idle_cleanup": a.IdleCleanup,
+		} {
+			gauge("kula_apache2_scoreboard",
+				"Number of Apache2 workers in a given scoreboard state.",
+				host+","+lbl("state", state), float64(val))
+		}
+	}
+
+	// ---- Applications: Containers ------------------------------------------
+	for _, c := range d.Apps.Containers {
+		cLbl := host + "," + lbl("id", c.ID) + "," + lbl("name", c.Name)
+		gauge("kula_container_cpu_percent",
+			"Container CPU usage as a percentage.",
+			cLbl, c.CPUPct)
+		gauge("kula_container_memory_used_bytes",
+			"Container memory usage in bytes.",
+			cLbl, float64(c.MemUsed))
+		gauge("kula_container_memory_limit_bytes",
+			"Container memory limit in bytes.",
+			cLbl, float64(c.MemLimit))
+		gauge("kula_container_memory_used_percent",
+			"Container memory usage as a percentage of its limit.",
+			cLbl, c.MemPct)
+		gauge("kula_container_network_rx_bytes_per_second",
+			"Container network receive throughput in bytes per second.",
+			cLbl, c.NetRxBPS)
+		gauge("kula_container_network_tx_bytes_per_second",
+			"Container network transmit throughput in bytes per second.",
+			cLbl, c.NetTxBPS)
+		gauge("kula_container_disk_read_bytes_per_second",
+			"Container block I/O read throughput in bytes per second.",
+			cLbl, c.DiskRBPS)
+		gauge("kula_container_disk_write_bytes_per_second",
+			"Container block I/O write throughput in bytes per second.",
+			cLbl, c.DiskWBPS)
+	}
+
+	// ---- Applications: PostgreSQL ------------------------------------------
+	if p := d.Apps.Postgres; p != nil {
+		gauge("kula_postgres_connections_active",
+			"PostgreSQL connections in the active state.",
+			host, float64(p.ActiveConns))
+		gauge("kula_postgres_connections_idle",
+			"PostgreSQL connections in the idle state.",
+			host, float64(p.IdleConns))
+		gauge("kula_postgres_connections_idle_in_transaction",
+			"PostgreSQL connections idle inside an open transaction.",
+			host, float64(p.IdleInTxConns))
+		gauge("kula_postgres_connections_waiting",
+			"PostgreSQL connections waiting on a lock or event.",
+			host, float64(p.WaitingConns))
+		gauge("kula_postgres_connections_max",
+			"PostgreSQL configured maximum number of connections.",
+			host, float64(p.MaxConns))
+		gauge("kula_postgres_transactions_committed_per_second",
+			"PostgreSQL committed transactions per second.",
+			host, p.TxCommitPS)
+		gauge("kula_postgres_transactions_rolled_back_per_second",
+			"PostgreSQL rolled-back transactions per second.",
+			host, p.TxRollbackPS)
+		gauge("kula_postgres_tuples_fetched_per_second",
+			"PostgreSQL tuples fetched per second.",
+			host, p.TupFetchedPS)
+		gauge("kula_postgres_tuples_returned_per_second",
+			"PostgreSQL tuples returned per second.",
+			host, p.TupReturnedPS)
+		gauge("kula_postgres_tuples_inserted_per_second",
+			"PostgreSQL tuples inserted per second.",
+			host, p.TupInsertedPS)
+		gauge("kula_postgres_tuples_updated_per_second",
+			"PostgreSQL tuples updated per second.",
+			host, p.TupUpdatedPS)
+		gauge("kula_postgres_tuples_deleted_per_second",
+			"PostgreSQL tuples deleted per second.",
+			host, p.TupDeletedPS)
+		gauge("kula_postgres_blocks_read_per_second",
+			"PostgreSQL disk block reads per second.",
+			host, p.BlksReadPS)
+		gauge("kula_postgres_blocks_hit_per_second",
+			"PostgreSQL buffer cache hits per second.",
+			host, p.BlksHitPS)
+		gauge("kula_postgres_buffer_cache_hit_percent",
+			"PostgreSQL buffer cache hit ratio as a percentage.",
+			host, p.BlksHitPct)
+		gauge("kula_postgres_deadlocks_per_second",
+			"PostgreSQL deadlocks detected per second.",
+			host, p.DeadlocksPS)
+		gauge("kula_postgres_dead_tuples",
+			"PostgreSQL dead tuples awaiting vacuum.",
+			host, float64(p.DeadTuples))
+		gauge("kula_postgres_live_tuples",
+			"PostgreSQL live (estimated) tuples.",
+			host, float64(p.LiveTuples))
+		gauge("kula_postgres_autovacuum_count",
+			"PostgreSQL autovacuum runs against user tables.",
+			host, float64(p.AutovacuumCount))
+		gauge("kula_postgres_buffers_checkpoint_per_second",
+			"PostgreSQL buffers written by checkpoints per second.",
+			host, p.BufCheckpointPS)
+		gauge("kula_postgres_buffers_backend_per_second",
+			"PostgreSQL buffers written by backends per second.",
+			host, p.BufBackendPS)
+		gauge("kula_postgres_database_size_bytes",
+			"PostgreSQL monitored database size in bytes.",
+			host, float64(p.DBSizeBytes))
+	}
+
+	// ---- Applications: MySQL/MariaDB ---------------------------------------
+	if m := d.Apps.Mysql; m != nil {
+		gauge("kula_mysql_threads_connected",
+			"MySQL client threads currently connected.",
+			host, float64(m.ThreadsConnected))
+		gauge("kula_mysql_threads_running",
+			"MySQL client threads currently running queries.",
+			host, float64(m.ThreadsRunning))
+		gauge("kula_mysql_threads_cached",
+			"MySQL threads in the thread cache.",
+			host, float64(m.ThreadsCached))
+		gauge("kula_mysql_max_connections",
+			"MySQL configured maximum number of client connections.",
+			host, float64(m.MaxConnections))
+		gauge("kula_mysql_queries_per_second",
+			"MySQL queries executed per second.",
+			host, m.QueriesPS)
+		gauge("kula_mysql_select_per_second",
+			"MySQL SELECT statements per second.",
+			host, m.ComSelectPS)
+		gauge("kula_mysql_insert_per_second",
+			"MySQL INSERT statements per second.",
+			host, m.ComInsertPS)
+		gauge("kula_mysql_update_per_second",
+			"MySQL UPDATE statements per second.",
+			host, m.ComUpdatePS)
+		gauge("kula_mysql_delete_per_second",
+			"MySQL DELETE statements per second.",
+			host, m.ComDeletePS)
+		gauge("kula_mysql_slow_queries_per_second",
+			"MySQL slow queries per second.",
+			host, m.SlowQueriesPS)
+		gauge("kula_mysql_innodb_buffer_pool_hit_percent",
+			"MySQL InnoDB buffer pool hit ratio as a percentage.",
+			host, m.InnodbBufferPoolHitPct)
+		gauge("kula_mysql_innodb_buffer_pool_reads_per_second",
+			"MySQL InnoDB buffer pool disk reads per second.",
+			host, m.InnodbBPReadsPS)
+		gauge("kula_mysql_table_locks_waited_per_second",
+			"MySQL table lock waits per second.",
+			host, m.TableLocksWaitedPS)
+		gauge("kula_mysql_row_lock_waits_per_second",
+			"MySQL row lock waits per second.",
+			host, m.RowLockWaitsPS)
+	}
+
+	// ---- Applications: Custom ----------------------------------------------
+	for source, values := range d.Apps.Custom {
+		for _, v := range values {
+			gauge("kula_custom_metric",
+				"User-defined custom metric value.",
+				host+","+lbl("source", source)+","+lbl("name", v.Name), v.Value)
+		}
+	}
+
 	// ---- Kula self-metrics -------------------------------------------------
 	gauge("kula_self_cpu_percent",
 		"Kula process CPU usage percentage.",
