@@ -67,7 +67,7 @@
   "metric_containers": "Container",
   "metric_containers_details": "Docker, podman, native cgroups",
   "metric_apps": "Anwendungen",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Benutzerdefiniert",
   "metric_custom_details": "Überwachen Sie alles mit benutzerdefinierten Metriken",
   "contact": "Kontakt",

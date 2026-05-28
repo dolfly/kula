@@ -67,7 +67,7 @@
   "metric_containers": "Contenitori",
   "metric_containers_details": "Docker, podman, cgroups grezzi",
   "metric_apps": "Applicazioni",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Personalizzato",
   "metric_custom_details": "Monitora qualsiasi cosa con metriche personalizzate",
   "contact": "Contatti",

@@ -67,7 +67,7 @@
   "metric_containers": "Kontainer",
   "metric_containers_details": "Docker, podman, cgroups mentah",
   "metric_apps": "Aplikasi",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Kustom",
   "metric_custom_details": "Pantau apa pun dengan metrik kustom",
   "contact": "Contact",

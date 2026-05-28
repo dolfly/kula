@@ -67,7 +67,7 @@
   "metric_containers": "Контейнери",
   "metric_containers_details": "Docker, podman, низькорівневі cgroups",
   "metric_apps": "Застосунки",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Користувацькі",
   "metric_custom_details": "Стежте за чим завгодно за допомогою користувацьких метрик",
   "contact": "Контакт",

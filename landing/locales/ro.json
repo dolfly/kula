@@ -67,7 +67,7 @@
   "metric_containers": "Containere",
   "metric_containers_details": "Docker, podman, cgroups brute",
   "metric_apps": "Aplicații",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Personalizat",
   "metric_custom_details": "Monitorizează orice cu metrici personalizate",
   "contact": "Contact",

@@ -67,7 +67,7 @@
   "metric_containers": "Containers",
   "metric_containers_details": "Docker, podman, ruwe cgroups",
   "metric_apps": "Applicaties",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Aangepast",
   "metric_custom_details": "Monitor van alles met aangepaste metrieken",
   "contact": "Contact",

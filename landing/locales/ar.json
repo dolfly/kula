@@ -67,7 +67,7 @@
   "metric_containers": "الحاويات",
   "metric_containers_details": "Docker، podman، cgroups خام",
   "metric_apps": "التطبيقات",
-  "metric_apps_details": "PostgreSQL، nginx",
+  "metric_apps_details": "PostgreSQL، MySQL/MariaDB، nginx، apache2",
   "metric_custom": "مخصص",
   "metric_custom_details": "راقب أي شيء بمقاييس مخصصة",
   "contact": "Contact",

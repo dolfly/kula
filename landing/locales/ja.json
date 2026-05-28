@@ -67,7 +67,7 @@
   "metric_containers": "コンテナ",
   "metric_containers_details": "Docker、podman、生のcgroups",
   "metric_apps": "アプリケーション",
-  "metric_apps_details": "PostgreSQL、nginx",
+  "metric_apps_details": "PostgreSQL、MySQL/MariaDB、nginx、apache2",
   "metric_custom": "カスタム",
   "metric_custom_details": "カスタムメトリクスで何でもモニタリング",
   "contact": "お問い合わせ",

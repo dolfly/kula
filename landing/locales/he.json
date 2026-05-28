@@ -67,7 +67,7 @@
   "metric_containers": "מכולות",
   "metric_containers_details": "Docker, podman, cgroups גולמיים",
   "metric_apps": "יישומים",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "מותאם אישית",
   "metric_custom_details": "נטר כל דבר עם מדדים מותאמים אישית",
   "contact": "Contact",

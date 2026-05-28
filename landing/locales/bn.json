@@ -67,7 +67,7 @@
   "metric_containers": "কনটেইনার",
   "metric_containers_details": "Docker, podman, raw cgroups",
   "metric_apps": "অ্যাপ্লিকেশন",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "কাস্টম",
   "metric_custom_details": "কাস্টম মেট্রিক্স দিয়ে যেকোনো কিছু পর্যবেক্ষণ করুন",
   "contact": "Contact",

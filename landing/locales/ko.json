@@ -67,7 +67,7 @@
   "metric_containers": "컨테이너",
   "metric_containers_details": "Docker, podman, 원시 cgroups",
   "metric_apps": "애플리케이션",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "사용자 정의",
   "metric_custom_details": "사용자 정의 메트릭으로 모든 것을 모니터링",
   "contact": "문의하기",

@@ -67,7 +67,7 @@
   "metric_containers": "Kontejnery",
   "metric_containers_details": "Docker, podman, surové cgroups",
   "metric_apps": "Aplikace",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Vlastní",
   "metric_custom_details": "Sledujte cokoli pomocí vlastních metrik",
   "contact": "Contact",

@@ -67,7 +67,7 @@
   "metric_containers": "Контейнеры",
   "metric_containers_details": "Docker, podman, низкоуровневые cgroups",
   "metric_apps": "Приложения",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Пользовательские",
   "metric_custom_details": "Отслеживайте что угодно с помощью пользовательских метрик",
   "contact": "Контакт",

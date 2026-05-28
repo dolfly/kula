@@ -67,7 +67,7 @@
   "metric_containers": "容器",
   "metric_containers_details": "Docker、podman、原始 cgroups",
   "metric_apps": "应用程序",
-  "metric_apps_details": "PostgreSQL、nginx",
+  "metric_apps_details": "PostgreSQL、MySQL/MariaDB、nginx、apache2",
   "metric_custom": "自定义",
   "metric_custom_details": "使用自定义指标监控任何内容",
   "contact": "联系方式",

@@ -67,7 +67,7 @@
   "metric_containers": "Container",
   "metric_containers_details": "Docker, podman, cgroups thô",
   "metric_apps": "Ứng dụng",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Tùy chỉnh",
   "metric_custom_details": "Giám sát bất cứ điều gì với các số liệu tùy chỉnh",
   "contact": "Contact",

@@ -67,7 +67,7 @@
   "metric_containers": "Konteynerler",
   "metric_containers_details": "Docker, podman, ham cgroup'lar",
   "metric_apps": "Uygulamalar",
-  "metric_apps_details": "PostgreSQL, nginx",
+  "metric_apps_details": "PostgreSQL, MySQL/MariaDB, nginx, apache2",
   "metric_custom": "Özel",
   "metric_custom_details": "Özel metriklerle her şeyi izleyin",
   "contact": "Contact",
