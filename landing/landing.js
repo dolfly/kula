@@ -180,9 +180,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } else {
             if (selectedTool === 'curl') {
-                command = `sh -c "$(curl -fsSL https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install.sh)"`;
+                command = `bash -c "$(curl -fsSL https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install.sh)"`;
             } else {
-                command = `sh -c "$(wget -qO- https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install.sh)"`;
+                command = `bash -c "$(wget -qO- https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install.sh)"`;
             }
         }
 
