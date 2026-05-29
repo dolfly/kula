@@ -25,7 +25,17 @@ name: CI
 on:
   push:
     branches: [main]
+    paths: &code-paths
+      - 'cmd/**'
+      - 'internal/**'
+      - 'config.example.yaml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'version.go'
+      - 'VERSION'
+      - '.github/workflows/ci.yml'
   pull_request:
+    paths: *code-paths
   workflow_dispatch:
 
 # Top-level default: read-only, repo-scoped token for every job below.
