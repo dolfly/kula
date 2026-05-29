@@ -143,15 +143,15 @@ Note: Never thoughtlessly paste commands into the terminal. Even checking the ch
 ### Guided
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install_v2.sh)"
 ```
 
 ### Guided (verify installer)
 
 ```bash
 KULA_INSTALL=$(mktemp)
-curl -o ${KULA_INSTALL} -fsSL https://kula.ovh/install
-echo "c70f6f070a1f93e278f07f7efb7d662a48bc16f43909df7889d8778430dde1b6 ${KULA_INSTALL}" | sha256sum -c || rm -f ${KULA_INSTALL}
+curl -o ${KULA_INSTALL} -fsSL https://raw.githubusercontent.com/c0m4r/kula/refs/heads/main/addons/install_v2.sh
+echo "bad61ee9eed4595d20fa7e613bd27c3b8700c67f8a5fcac756d282a811705398 ${KULA_INSTALL}" | sha256sum -c || rm -f ${KULA_INSTALL}
 bash ${KULA_INSTALL}
 rm -f ${KULA_INSTALL}
 ```
