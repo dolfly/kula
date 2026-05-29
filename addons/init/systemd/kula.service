@@ -12,13 +12,41 @@ User=kula
 Group=kula
 WorkingDirectory=/var/lib/kula
 
-# Hardening
+# Runtime dir for an optional Unix socket under /run/kula (web.unix_socket).
+# /run is a tmpfs wiped each boot and kula does not create the socket's parent
+# dir itself, so let systemd create/clean /run/kula (writable even under
+# ProtectSystem=strict). Unused in the default TCP setup; harmless if so.
+RuntimeDirectory=kula
+RuntimeDirectoryMode=0750
+
+# Hardening — defense in depth on top of kula's built-in Landlock sandbox.
+# Tuned for a monitoring daemon: it must still read system-wide /proc,
+# /sys/fs/cgroup and sockets under /run (docker/podman/mysql/postgres), so
+# /proc-hiding (ProcSubset/ProtectProc) and a syscall filter are intentionally
+# omitted to avoid breaking collection.
+NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-PrivateTmp=true
-NoNewPrivileges=true
 ReadWritePaths=/var/lib/kula
 ReadOnlyPaths=/etc/kula
+PrivateTmp=true
+PrivateDevices=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+UMask=0077
 
 # Resource limits
 LimitNOFILE=65536
