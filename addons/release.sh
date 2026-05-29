@@ -11,10 +11,17 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+ARCHS=(amd64 arm64 riscv64)
+
+# Start from a clean dist so CHECKSUMS reflects exactly this release and no
+# stale artifacts from a previous run leak in.
+rm -rf ../dist
+
 ./build.sh cross
 
 cd "../dist"
 
+# Bundle tarballs + single gzipped binaries (uses the raw kula-linux-* binaries)
 for f in kula-linux-* ; do
     mkdir -p kula
     cp "$f" kula/kula
@@ -38,18 +45,27 @@ done
 
 cd ..
 
-# building deb and rpm packages for all archs
-for arch in amd64 arm64 riscv64; do
+# building deb and rpm packages for all archs (these also consume the raw binaries)
+for arch in "${ARCHS[@]}"; do
     ./addons/build_deb.sh "$arch"
     ./addons/build_rpm.sh "$arch"
 done
 
-# generate AUR files
-echo -e "2\n" | ./addons/build_aur.sh
+# AUR is intentionally not built here: its PKGBUILD pins the GitHub source
+# archive that only exists once the release is published. Generate it afterwards
+# with ./addons/build_aur.sh (it will append its checksums to CHECKSUMS.sha256.txt).
 
-cd -
+# Remove the uncompressed raw binaries; we ship the .gz/.tar.gz/.deb/.rpm only.
+for arch in "${ARCHS[@]}"; do
+    rm -f "dist/kula-linux-${VERSION}-${arch}"
+done
+
+# Generate checksums over the distributable artifacts (very last step).
+# Run from inside dist/ so filenames are bare; -type f skips the aur dir;
+# the find avoids the "*.tar.gz also matches *.gz" double-listing trap.
+( cd dist && find . -maxdepth 1 -type f -name 'kula-*' ! -name 'CHECKSUMS*' \
+    -printf '%P\n' | sort | xargs sha256sum > CHECKSUMS.sha256.txt )
 
 echo "Release done!"
-pwd
-ls -1 $(pwd)/*.tar.gz
-ls -1 $(pwd)/*.deb
+echo "Artifacts in $(pwd)/dist (CHECKSUMS.sha256.txt):"
+cat "$(pwd)/dist/CHECKSUMS.sha256.txt"
