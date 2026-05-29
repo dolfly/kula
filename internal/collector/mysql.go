@@ -261,6 +261,28 @@ func (c *Collector) collectMysqlReplicaStatus(ctx context.Context, stats *MysqlS
 			stats.ReplicaSecondsBehind = n
 		}
 	}
+	// Last_*_Errno columns are 0 when there is no error. They survive
+	// thread restarts so an operator can see what the last failure was
+	// even after manually restarting replication.
+	if v, ok := getStr("Last_IO_Errno"); ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			stats.LastIOErrno = n
+		}
+	}
+	if v, ok := getStr("Last_SQL_Errno"); ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			stats.LastSQLErrno = n
+		}
+	}
+	// Slave_IO_State is the human-readable IO thread state. Cap at 200
+	// bytes so a hostile / unusually long value can't blow the codec's
+	// uint8-prefixed string limit (255 bytes).
+	if v, ok := getStr("Replica_IO_State", "Slave_IO_State"); ok {
+		if len(v) > 200 {
+			v = v[:200]
+		}
+		stats.IOState = v
+	}
 }
 
 // collectMysqlReplicaCount fills ReplicaCount from SHOW REPLICAS, falling back

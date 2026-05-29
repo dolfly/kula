@@ -285,7 +285,20 @@ applications:
   #   GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'kula_monitor'@'127.0.0.1';
   #   FLUSH PRIVILEGES;
   #
-  # Then reload: sudo systemctl reload mysql
+  # For full replication monitoring on MariaDB  MySQL the
+  # privileges above are not enough — grant in addition:
+  #   GRANT SLAVE MONITOR, BINLOG MONITOR, REPLICATION MASTER ADMIN
+  #     ON *.* TO 'kula_monitor'@'127.0.0.1';
+  # SLAVE MONITOR is required for SHOW REPLICA STATUS (kula picks up
+  # io/sql thread state, seconds-behind, last errno, IO state from this).
+  # REPLICATION MASTER ADMIN is required for SHOW SLAVE HOSTS / SHOW REPLICAS
+  # (used for the "replicas connected" gauge). Without these grants the
+  # replication metrics quietly degrade to zero / sentinel values rather
+  # than failing the rest of the collector.
+  #
+  # Caveat on Seconds_Behind_Source: this is the SQL thread's view of how far
+  # behind it is on what it currently sees, NOT the true lag from the primary.
+
   mysql:
     enabled: false
     host: "127.0.0.1"

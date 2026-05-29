@@ -18,8 +18,9 @@ package storage
 //         if version>=2 → read new layout. Zero-init fields absent in old.
 //     See the PostgreSQL section for a worked example (v1=56B, v2=104B,
 //     v3=121B — v3 appends 17 bytes for replication state after the v2
-//     layout). MySQL grew the same way (v1=56B → v2=66B, +10 bytes for
-//     replication state).
+//     layout). MySQL grew the same way (v1=56B → v2=66B → v3=74B + a
+//     length-prefixed IOState string; the v3 additions cover the IO/SQL
+//     error codes and the human-readable IO thread state).
 //
 //  3. To add an entirely new application section, append it AFTER the custom
 //     metrics section and gate it behind a new preamble flag bit
@@ -535,17 +536,18 @@ func appendVariable(buf []byte, s *collector.Sample) ([]byte, error) {
 	//   0 = not present
 	//   1 = v1 format (56-byte block: 4×int32 + 10×float32)
 	//   2 = v2 format (66-byte block: v1 + replication state)
+	//   3 = v3 format (v2 + 8B errno + length-prefixed IOState string)
 	//
-	// v2 layout (66 bytes):
+	// v3 layout (74+1+len(IOState) bytes):
 	//   [0:56]   v1 fields (unchanged)
-	//   [56:60]  ReplicaCount         — 1×int32
-	//   [60:61]  ReplicaIORunning     — 1×uint8
-	//   [61:62]  ReplicaSQLRunning    — 1×uint8
-	//   [62:66]  ReplicaSecondsBehind — 1×int32 (sentinel -1 = NULL / not configured)
+	//   [56:66]  v2 replication state (unchanged)
+	//   [66:70]  LastIOErrno          — 1×int32
+	//   [70:74]  LastSQLErrno         — 1×int32
+	//   [74:...] IOState              — uint8 length prefix + UTF-8 bytes (≤200B)
 	if s.Apps.Mysql != nil {
-		buf = append(buf, 2)
+		buf = append(buf, 3)
 		my := s.Apps.Mysql
-		var mb [66]byte
+		var mb [74]byte
 		binary.LittleEndian.PutUint32(mb[0:], uint32(int32(my.ThreadsConnected)))
 		binary.LittleEndian.PutUint32(mb[4:], uint32(int32(my.ThreadsRunning)))
 		binary.LittleEndian.PutUint32(mb[8:], uint32(int32(my.ThreadsCached)))
@@ -568,7 +570,16 @@ func appendVariable(buf []byte, s *collector.Sample) ([]byte, error) {
 			mb[61] = 1
 		}
 		binary.LittleEndian.PutUint32(mb[62:], uint32(int32(my.ReplicaSecondsBehind)))
+		binary.LittleEndian.PutUint32(mb[66:], uint32(int32(my.LastIOErrno)))
+		binary.LittleEndian.PutUint32(mb[70:], uint32(int32(my.LastSQLErrno)))
 		buf = append(buf, mb[:]...)
+		ioState := my.IOState
+		if len(ioState) > 200 {
+			ioState = ioState[:200]
+		}
+		if buf, err = appendStr(buf, ioState); err != nil {
+			return buf, fmt.Errorf("mysql io_state: %w", err)
+		}
 	} else {
 		buf = append(buf, 0)
 	}
@@ -1114,6 +1125,7 @@ func decodeVariable(data []byte, s *collector.Sample, hasApps, hasApache2, hasMy
 	// lack this flag skip the byte and continue to Apache2 or Custom.
 	//   1 = v1 (56-byte block)
 	//   2 = v2 (66-byte block: v1 + replication state)
+	//   3 = v3 (74-byte block + length-prefixed IOState string)
 	if hasMysql {
 		if err := need(1, "mysql presence"); err != nil {
 			return off, err
@@ -1121,10 +1133,13 @@ func decodeVariable(data []byte, s *collector.Sample, hasApps, hasApache2, hasMy
 		myVersion := data[off]; off++
 		if myVersion >= 1 {
 			blockSize := 56
-			if myVersion >= 2 {
+			switch {
+			case myVersion >= 3:
+				blockSize = 74
+			case myVersion == 2:
 				blockSize = 66
 			}
-			if err := need(blockSize, "mysql v1/v2 fields"); err != nil {
+			if err := need(blockSize, "mysql v1/v2/v3 fields"); err != nil {
 				return off, err
 			}
 			my := &collector.MysqlStats{}
@@ -1152,6 +1167,16 @@ func decodeVariable(data []byte, s *collector.Sample, hasApps, hasApache2, hasMy
 				// "unknown / not configured" so downstream consumers can
 				// distinguish from a real "0 seconds behind" reading.
 				my.ReplicaSecondsBehind = -1
+			}
+			if myVersion >= 3 {
+				my.LastIOErrno  = int(int32(binary.LittleEndian.Uint32(data[off:]))); off += 4
+				my.LastSQLErrno = int(int32(binary.LittleEndian.Uint32(data[off:]))); off += 4
+				state, n, err := getStr(data[off:])
+				if err != nil {
+					return off, fmt.Errorf("mysql io_state: %w", err)
+				}
+				off += n
+				my.IOState = state
 			}
 			s.Apps.Mysql = my
 		}

@@ -626,6 +626,28 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		gauge("kula_mysql_replicas_connected",
 			"Number of replicas connected to this MySQL primary.",
 			host, float64(m.ReplicaCount))
+		// Errno gauges are 0 when there is no error. Non-zero values map
+		// directly to a MySQL error code (e.g. 1236 = master log not found,
+		// 1062 = duplicate entry from divergent applier).
+		gauge("kula_mysql_replica_last_io_errno",
+			"Last MySQL IO thread error code (0 = no error). Cf. Last_IO_Errno.",
+			host, float64(m.LastIOErrno))
+		gauge("kula_mysql_replica_last_sql_errno",
+			"Last MySQL SQL thread error code (0 = no error). Cf. Last_SQL_Errno.",
+			host, float64(m.LastSQLErrno))
+		// Slave_IO_State as a Prometheus info-style metric (value always 1,
+		// state surfaced as a label). The values are well-known and bounded
+		// ("Waiting for master to send event", "Reconnecting after a failed
+		// master event read", "Queueing master event to the relay log", …).
+		// Emitted only when non-empty so non-replica servers don't add a
+		// useless info line.
+		if m.IOState != "" {
+			gauge("kula_mysql_replica_io_state_info",
+				"MySQL IO thread state (Slave_IO_State). Value is always 1; "+
+					"the state string lives in the label so consumers can group / alert "+
+					"on transitions away from the steady-state waiting message.",
+				host+","+lbl("state", m.IOState), 1)
+		}
 	}
 
 	// ---- Applications: Custom ----------------------------------------------

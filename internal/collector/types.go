@@ -317,6 +317,15 @@ type MysqlStats struct {
 	ReplicaSQLRunning     bool `json:"replica_sql_running"`
 	ReplicaSecondsBehind  int  `json:"replica_seconds_behind"`
 	ReplicaCount          int  `json:"replica_count"`
+
+	// Replication error / state. LastIOErrno and LastSQLErrno are the most
+	// recent MySQL error codes reported by the IO and SQL threads; 0 means
+	// no error. IOState is Slave_IO_State (e.g. "Waiting for master to send
+	// event") — useful for distinguishing "stalled but technically running"
+	// from "actively waiting for data". Stored capped at 200 bytes.
+	LastIOErrno  int    `json:"replica_last_io_errno"`
+	LastSQLErrno int    `json:"replica_last_sql_errno"`
+	IOState      string `json:"replica_io_state,omitempty"`
 }
 
 // PowerSupplyStats holds metrics for a single power supply (battery, mains adapter, UPS).

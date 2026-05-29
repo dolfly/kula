@@ -1005,3 +1005,124 @@ func TestDecodeMysqlV2Block(t *testing.T) {
 			dec2.Data.Apps.Mysql.ReplicaSecondsBehind)
 	}
 }
+
+// ---- TestDecodeMysqlV3Block --------------------------------------------------
+// Round-trip test for the v3 mysql block: the new errno + IOState fields
+// must survive, AND a v2 record (presence byte 2 + 66-byte payload) must
+// still decode correctly under the v3 decoder (the encoder always writes v3
+// now, so we build the v2 buffer by hand).
+
+func TestDecodeMysqlV3Block(t *testing.T) {
+	now := time.Now().Truncate(time.Millisecond)
+
+	// Part 1 — full v3 round-trip with errno + IOState populated.
+	sample := makeSampleFull(now)
+	sample.Data.Apps.Mysql = &collector.MysqlStats{
+		ThreadsConnected:     12,
+		QueriesPS:            50.0,
+		ReplicaIORunning:     false,
+		ReplicaSQLRunning:    true,
+		ReplicaSecondsBehind: -1,
+		ReplicaCount:         2,
+		LastIOErrno:          1236,
+		LastSQLErrno:         0,
+		IOState:              "Reconnecting after a failed master event read",
+	}
+	encoded, err := encodeSample(sample)
+	if err != nil {
+		t.Fatalf("encodeSample: %v", err)
+	}
+	decoded, err := decodeSample(encoded)
+	if err != nil {
+		t.Fatalf("decodeSample: %v", err)
+	}
+	got := decoded.Data.Apps.Mysql
+	if got == nil {
+		t.Fatal("expected Mysql to be non-nil after round-trip")
+	}
+	if got.LastIOErrno != 1236 || got.LastSQLErrno != 0 {
+		t.Errorf("errno fields didn't round-trip: io=%d sql=%d", got.LastIOErrno, got.LastSQLErrno)
+	}
+	if got.IOState != "Reconnecting after a failed master event read" {
+		t.Errorf("IOState didn't round-trip: got %q", got.IOState)
+	}
+	// Alignment check: trailing sections must still decode.
+	if decoded.Data.System.Hostname != "test-host" {
+		t.Errorf("alignment check failed after v3 mysql: Hostname=%q", decoded.Data.System.Hostname)
+	}
+
+	// Part 2 — empty IOState must round-trip too (length byte = 0).
+	sample.Data.Apps.Mysql = &collector.MysqlStats{QueriesPS: 1.0, ReplicaSecondsBehind: -1, IOState: ""}
+	enc2, err := encodeSample(sample)
+	if err != nil {
+		t.Fatalf("encodeSample (empty state): %v", err)
+	}
+	dec2, err := decodeSample(enc2)
+	if err != nil {
+		t.Fatalf("decodeSample (empty state): %v", err)
+	}
+	if dec2.Data.Apps.Mysql.IOState != "" {
+		t.Errorf("empty IOState round-trip: got %q", dec2.Data.Apps.Mysql.IOState)
+	}
+
+	// Part 3 — a hand-built v2 record (presence=2 + 66 bytes) must still
+	// decode under the v3 decoder. Build it via the divergence trick: encode
+	// with and without Mysql, find the byte offset that diverges.
+	sample.Data.Apps.Mysql = &collector.MysqlStats{
+		ThreadsConnected:     5,
+		ReplicaIORunning:     true,
+		ReplicaSQLRunning:    true,
+		ReplicaSecondsBehind: 0,
+		ReplicaCount:         1,
+	}
+	varBuf, err := appendVariable(nil, sample.Data)
+	if err != nil {
+		t.Fatalf("appendVariable: %v", err)
+	}
+	noMy := *sample.Data
+	noMy.Apps.Mysql = nil
+	noMyBuf, err := appendVariable(nil, &noMy)
+	if err != nil {
+		t.Fatalf("appendVariable (no mysql): %v", err)
+	}
+	myOff := -1
+	for i := 0; i < len(noMyBuf) && i < len(varBuf); i++ {
+		if noMyBuf[i] != varBuf[i] {
+			myOff = i
+			break
+		}
+	}
+	if myOff < 0 {
+		t.Fatal("could not find mysql presence byte offset")
+	}
+
+	// Build a v2 buffer in place of the v3 one. The first 66 bytes after
+	// the presence byte are identical to v3's [0:66], so we can borrow them.
+	var v2Var []byte
+	v2Var = append(v2Var, varBuf[:myOff]...) // up to mysql presence
+	v2Var = append(v2Var, 2)                  // v2 presence tag
+	v2Var = append(v2Var, varBuf[myOff+1:myOff+1+66]...) // v3's first 66B == v2 layout
+	// In varBuf the v3 trailer is: 8B errno + (1+len) IOState. Skip it.
+	v3StateLen := int(varBuf[myOff+1+74])
+	v2Var = append(v2Var, varBuf[myOff+1+74+1+v3StateLen:]...) // append remainder
+
+	target := &collector.Sample{}
+	if _, err := decodeVariable(v2Var, target, true, true, true); err != nil {
+		t.Fatalf("decodeVariable(v2 mysql) error: %v", err)
+	}
+	gotV2 := target.Apps.Mysql
+	if gotV2 == nil {
+		t.Fatal("expected Mysql non-nil from v2 record")
+	}
+	if !gotV2.ReplicaIORunning || gotV2.ReplicaCount != 1 {
+		t.Errorf("v2 fields didn't decode: %+v", gotV2)
+	}
+	// v3 fields must be zero/empty on a v2 record.
+	if gotV2.LastIOErrno != 0 || gotV2.LastSQLErrno != 0 || gotV2.IOState != "" {
+		t.Errorf("v3 fields should be zero on v2 record: errno=%d/%d state=%q",
+			gotV2.LastIOErrno, gotV2.LastSQLErrno, gotV2.IOState)
+	}
+	if target.System.Hostname != "test-host" {
+		t.Errorf("alignment check failed after v2 mysql under v3 decoder: %q", target.System.Hostname)
+	}
+}

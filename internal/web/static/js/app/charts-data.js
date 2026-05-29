@@ -693,7 +693,16 @@ export function addSampleToCharts(item, ts) {
                     const io  = m.replica_io_running  ? 'running' : 'stopped';
                     const sql = m.replica_sql_running ? 'running' : 'stopped';
                     const lag = secs === null ? 'n/a' : `${secs}s`;
-                    sub.textContent = `IO: ${io}  SQL: ${sql}  Lag: ${lag}  Replicas: ${m.replica_count || 0}`;
+                    // Surface a non-zero errno or a non-waiting IO state
+                    // inline so an operator alerted by the IO/SQL flip can
+                    // see *why* without opening a SQL client.
+                    const errno = (m.replica_last_io_errno || m.replica_last_sql_errno) || 0;
+                    let extra = '';
+                    if (errno) extra = `  Err: ${errno}`;
+                    else if (m.replica_io_state && !/waiting for (master|source) to send/i.test(m.replica_io_state)) {
+                        extra = `  State: ${m.replica_io_state}`;
+                    }
+                    sub.textContent = `IO: ${io}  SQL: ${sql}  Lag: ${lag}  Replicas: ${m.replica_count || 0}${extra}`;
                 }
             }
         }

@@ -571,6 +571,7 @@ def _decode_variable(
     #   0 = not present
     #   1 = v1 format (56-byte block: 4×i32 + 10×f32)
     #   2 = v2 format (66-byte block: v1 + replication state)
+    #   3 = v3 format (v2 + 8B errno + length-prefixed IOState string)
     if has_mysql:
         my_version, off = _get_u8(data, off)
         if my_version >= 1:
@@ -592,6 +593,9 @@ def _decode_variable(
             replica_io_running = False
             replica_sql_running = False
             replica_seconds_behind = -1
+            last_io_errno = 0
+            last_sql_errno = 0
+            io_state = ""
             if my_version >= 2:
                 replica_count, off = _get_i32(data, off)
                 io_byte, off = _get_u8(data, off)
@@ -599,6 +603,10 @@ def _decode_variable(
                 replica_io_running = io_byte != 0
                 replica_sql_running = sql_byte != 0
                 replica_seconds_behind, off = _get_i32(data, off)
+            if my_version >= 3:
+                last_io_errno, off = _get_i32(data, off)
+                last_sql_errno, off = _get_i32(data, off)
+                io_state, off = _get_str(data, off)
             apps["mysql"] = {
                 "version": my_version,
                 "threads_connected": threads_connected,
@@ -619,6 +627,9 @@ def _decode_variable(
                 "replica_sql_running": replica_sql_running,
                 "replica_seconds_behind": replica_seconds_behind,
                 "replica_count": replica_count,
+                "replica_last_io_errno": last_io_errno,
+                "replica_last_sql_errno": last_sql_errno,
+                "replica_io_state": io_state,
             }
 
     # 7e. Apache2 — gated by has_apache2 flag so old records skip this section.
