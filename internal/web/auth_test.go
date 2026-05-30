@@ -107,6 +107,55 @@ func TestValidateCredentialsWrong(t *testing.T) {
 	}
 }
 
+func TestValidateCredentialsConstantTime(t *testing.T) {
+	// An unknown username must trigger the same Argon2id work as a known one;
+	// otherwise the login response time leaks which usernames exist.
+	salt := "timingsalt"
+	params := config.Argon2Config{Time: 1, Memory: 16 * 1024, Threads: 1}
+	cfg := config.AuthConfig{
+		Enabled:      true,
+		Username:     "admin",
+		PasswordHash: HashPassword("testpass", salt, params),
+		PasswordSalt: salt,
+		Argon2:       params,
+	}
+	am := NewAuthManager(cfg, t.TempDir(), false, config.SecurityConfig{})
+
+	// Behavior must be unchanged by the constant-time fallback.
+	if !am.ValidateCredentials("admin", "testpass") {
+		t.Fatal("valid credentials should authenticate")
+	}
+	if am.ValidateCredentials("nobody", "testpass") {
+		t.Fatal("unknown user must not authenticate")
+	}
+
+	// The minimum over several runs is a stable estimate of the unavoidable
+	// Argon2id cost on each path.
+	measure := func(user, pass string) time.Duration {
+		best := time.Hour
+		for i := 0; i < 7; i++ {
+			start := time.Now()
+			am.ValidateCredentials(user, pass)
+			if d := time.Since(start); d < best {
+				best = d
+			}
+		}
+		return best
+	}
+
+	known := measure("admin", "wrongpass")    // known user, wrong password
+	unknown := measure("nobody", "wrongpass") // unknown user
+
+	// Both paths run exactly one Argon2id hash, so their minima are the same
+	// order of magnitude. Before the fix the unknown path skipped hashing and
+	// was orders of magnitude faster; a generous 1/4 bound stays robust to CI
+	// scheduling noise while failing hard for the old behavior.
+	if unknown < known/4 {
+		t.Errorf("unknown-user path too fast (%v) vs known-user path (%v): "+
+			"username enumeration timing oracle likely present", unknown, known)
+	}
+}
+
 func TestSessionLifecycle(t *testing.T) {
 	am := NewAuthManager(config.AuthConfig{
 		Enabled:        true,

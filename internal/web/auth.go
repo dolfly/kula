@@ -165,7 +165,25 @@ func GenerateSalt() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// dummySalt and dummyHash back the constant-time fallback in
+// ValidateCredentials. When the supplied username matches no configured user,
+// a throwaway Argon2id hash is still computed and compared against these fixed
+// values so that an unknown username costs the same wall-clock time as a known
+// one. This closes a user-enumeration timing oracle. The values are arbitrary
+// constants; the comparison they feed is always expected to fail. dummyHash is
+// 64 hex chars to match the length of a real HashPassword result so the
+// constant-time compare runs over equal-length inputs.
+const (
+	dummySalt = "0000000000000000000000000000000000000000000000000000000000000000"
+	dummyHash = "0000000000000000000000000000000000000000000000000000000000000000"
+)
+
 // ValidateCredentials checks username and password against config.
+//
+// Exactly one Argon2id computation is performed on every call regardless of
+// whether the username exists: a non-matching username falls through to a
+// throwaway hash over dummySalt so the response time does not reveal which
+// usernames are valid (enumeration timing side channel).
 func (a *AuthManager) ValidateCredentials(username, password string) bool {
 	if !a.cfg.Enabled {
 		return true
@@ -183,6 +201,13 @@ func (a *AuthManager) ValidateCredentials(username, password string) bool {
 		}
 	}
 
+	// No username matched. Perform a throwaway Argon2id computation with the
+	// same parameters (and a constant-time compare) so an unknown username
+	// costs the same time as a known one. Without this, the early return here
+	// would make unknown usernames resolve ~1000x faster than known ones,
+	// leaking which usernames exist.
+	dummy := HashPassword(password, dummySalt, a.cfg.Argon2)
+	_ = subtle.ConstantTimeCompare([]byte(dummy), []byte(dummyHash))
 	return false
 }
 

@@ -16,6 +16,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 ### Security
 
 - Cap rate-limiter memory to prevent unbounded growth from distinct-IP floods
+- Fix Login timing side-channel / username enumeration
 
 ## [0.17.2] - 2026-05-30
 
