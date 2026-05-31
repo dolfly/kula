@@ -1,24 +1,6 @@
 # Semgrep static analysis for kula.
 #
-# ─── Security model (identical to ci.yml) ──────────────────────────────────
-#   * permissions: contents: read
-#       The GITHUB_TOKEN handed to this run can only READ this one repo.
-#       Every write scope (contents:write, packages, id-token, ...) is
-#       implicitly `none`. So even if a dependency or an installed dev tool
-#       turns out to be malicious, it CANNOT push commits, move tags, cut
-#       releases, or otherwise manipulate the remote repository.
-#   * persist-credentials: false
-#       checkout does NOT write the token into .git/config, so nothing
-#       running in the job can read it back out in the first place.
-#   * No third-party actions.
-#       Only first-party actions/* are used, each pinned to a full commit
-#       SHA (tags are mutable and can be re-pointed; a SHA cannot).
-#   * semgrep is installed from PyPI into a throwaway venv, pinned to the
-#       latest release uploaded more than 7 days ago (--uploaded-prior-to=P7D)
-#       so a freshly-published malicious version can't sneak in. Within the
-#       read-only sandbox above it has no path to the remote repo regardless.
-#   * runs-on: ubuntu-latest — a GitHub-hosted, ephemeral VM destroyed
-#       after the job. We don't care what happens inside it.
+# ─── Security model identical to ci.yml ────────────────────────────────────
 # ───────────────────────────────────────────────────────────────────────────
 
 name: Semgrep
@@ -80,9 +62,7 @@ jobs:
 
       - name: Install semgrep
         # Install into a throwaway venv, pinned to the latest release that was
-        # uploaded to PyPI more than 7 days ago. Named .venv so it matches the
-        # .venv/ entry in .semgrepignore (the installed packages must not be
-        # scanned as if they were project source).
+        # uploaded to PyPI more than 7 days ago.
         run: |
           python -m venv .venv
           .venv/bin/pip install --uploaded-prior-to=P7D semgrep
