@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -308,7 +309,11 @@ func enumerationFinding(s *Scanner) Finding {
 // loginRaw posts credentials with a same-origin header (so CSRF admits it) and
 // returns the result. Used by probes that must reach the login handler.
 func (s *Scanner) loginRaw(username, password string) httpResult {
-	body := `{"username":` + jsonString(username) + `,"password":` + jsonString(password) + `}`
+	b, err := json.Marshal(map[string]string{"username": username, "password": password})
+	if err != nil {
+		return httpResult{err: err}
+	}
+	body := string(b)
 	headers := map[string]string{
 		"Content-Type": "application/json",
 		"Origin":       s.base.Scheme + "://" + s.base.Host,
