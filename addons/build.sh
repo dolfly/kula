@@ -61,6 +61,15 @@ else
         -o kula \
         ./cmd/kula/
 
+    echo "Building kula-scan..."
+
+    CGO_ENABLED=0 go build \
+        -trimpath \
+        -ldflags="-s -w" \
+        -buildvcs=false \
+        -o kula-scan \
+        ./cmd/kula-scan/
+
     echo "Building gen-mock-data..."
 
     CGO_ENABLED=0 go build \
