@@ -7,9 +7,9 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 perl -i -0777 -pe 's/\.btn-game\s*\{[^}]*\}\s*//g' "${PROJECT_ROOT}"/internal/web/static/style.css
 perl -i -0777 -pe 's/\.btn-game:hover\s*\{[^}]*\}\s*//g' "${PROJECT_ROOT}"/internal/web/static/style.css
 
-# remove dashboard link
-sed -i '/<!-- Game easter egg -->/d' "${PROJECT_ROOT}"/internal/web/static/index.html
-sed -i '/btn-game.*Space Invaders/d' "${PROJECT_ROOT}"/internal/web/static/index.html
+# remove dashboard link (comment + multi-line {{if .EasterEgg}} ... {{end}} block)
+perl -i -0777 -pe 's/[ \t]*<!-- Game easter egg -->\n//g' "${PROJECT_ROOT}"/internal/web/static/index.html
+perl -i -0777 -pe 's/[ \t]*\{\{if \.EasterEgg\}\}.*?\{\{end\}\}\n//gs' "${PROJECT_ROOT}"/internal/web/static/index.html
 
 # remove game files
 rm -f "${PROJECT_ROOT}"/internal/web/static/game.*
