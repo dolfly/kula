@@ -15,3 +15,4 @@
 .~lock*
 __pycache__
 .mypy_cache
+/*.bak
