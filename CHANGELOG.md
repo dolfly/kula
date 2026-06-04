@@ -22,6 +22,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 - gen-mock-data update and refactor
 - tier files intergrity improvements
+- logging minor improvements
 
 ## [0.17.3] - 2026-06-01
 
