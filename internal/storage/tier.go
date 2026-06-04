@@ -35,6 +35,14 @@ const (
 	codecVersion2 = 2
 )
 
+// Header flags packed into bytes [4:8] (uint32 LE). Files written before this
+// field existed leave it zeroed, which is exactly how we detect a pre-fix file
+// that has no recorded tail offset.
+const (
+	flagHeaderHasTail uint32 = 1 << 0 // header carries a valid oldestOff (tail)
+	flagHeaderWrapped uint32 = 1 << 1 // ring has wrapped; an old segment exists
+)
+
 type Tier struct {
 	mu       sync.RWMutex
 	file     *os.File
@@ -45,7 +53,11 @@ type Tier struct {
 	oldestTS time.Time
 	newestTS time.Time
 	wrapped  bool
-	codecVer uint64 // 1 = legacy JSON, 2 = binary
+	// oldestOff is the data-region byte offset of the oldest surviving record.
+	// It is meaningful only while wrapped and is always kept on a real record
+	// boundary, so it stays correct even when record sizes vary across a wrap.
+	oldestOff int64
+	codecVer  uint64 // 1 = legacy JSON, 2 = binary
 }
 
 func OpenTier(path string, maxSize int64) (*Tier, error) {
@@ -135,16 +147,47 @@ func (t *Tier) readHeader() error {
 		t.newestTS = time.Unix(0, newestNano)
 	}
 
-	if t.count > 0 {
-		// If the file's persistent extent reaches past the current write
-		// offset, bytes from a previous ring pass survive there — i.e. we
-		// have wrapped. Comparing against maxData would miss this: the
-		// file's max size after a wrap is headerSize + writeOff_at_wrap (+
-		// a 4-byte sentinel), which is strictly less than headerSize +
-		// maxData by up to one record's worth of bytes.
-		fileInfo, _ := t.file.Stat()
-		if fileInfo != nil && fileInfo.Size() > headerSize+t.writeOff {
-			t.wrapped = true
+	headerFlags := binary.LittleEndian.Uint32(buf[4:8])
+	if headerFlags&flagHeaderHasTail != 0 {
+		// Written by tail-tracking code. Trust the persisted state, but
+		// validate the wrapped tail: an offset left behind by an earlier buggy
+		// build can point at garbage (e.g. a far-future "2119" timestamp), and
+		// blindly trusting it would perpetuate the very bug we are fixing.
+		t.wrapped = headerFlags&flagHeaderWrapped != 0
+		t.oldestOff = int64(binary.LittleEndian.Uint64(buf[56:64]))
+		if t.wrapped {
+			ok := t.oldestOff >= t.writeOff && t.oldestOff < t.maxData
+			if ok {
+				ts, err := t.readTimestampAt(t.oldestOff)
+				if err == nil && !ts.IsZero() && (t.newestTS.IsZero() || !ts.After(t.newestTS)) {
+					t.oldestTS = ts
+				} else {
+					ok = false // tail doesn't decode, or is newer than newest
+				}
+			}
+			if !ok {
+				t.wrapped = false // corrupt tail → self-heal below
+			}
+		}
+	} else if t.count > 0 {
+		// Pre-fix file (no tail metadata). Self-heal: the byte offset of the
+		// oldest surviving record was never recorded and cannot be recovered
+		// (old record boundaries are destroyed once newer records overwrite
+		// them, and a full-size file makes the old size-based heuristic
+		// misfire). Drop any stale wrapped tail and keep the contiguous records
+		// in [0, writeOff); new writes refill the rest.
+		t.wrapped = false
+	}
+
+	// Whenever we are (or fell back to) the non-wrapped state, the oldest record
+	// sits at offset 0. Re-derive oldestTS from there so it can never be the
+	// classic 1970/2119 garbage a buggy header may carry.
+	if !t.wrapped {
+		t.oldestOff = 0
+		if t.count > 0 && t.writeOff > 0 {
+			if ts, err := t.readTimestampAt(0); err == nil {
+				t.oldestTS = ts
+			}
 		}
 	}
 
@@ -158,6 +201,13 @@ func (t *Tier) writeHeader() error {
 	binary.LittleEndian.PutUint64(buf[16:24], uint64(t.maxData))
 	binary.LittleEndian.PutUint64(buf[24:32], uint64(t.writeOff))
 	binary.LittleEndian.PutUint64(buf[32:40], t.count)
+
+	headerFlags := flagHeaderHasTail
+	if t.wrapped {
+		headerFlags |= flagHeaderWrapped
+	}
+	binary.LittleEndian.PutUint32(buf[4:8], headerFlags)
+	binary.LittleEndian.PutUint64(buf[56:64], uint64(t.oldestOff))
 
 	if !t.oldestTS.IsZero() {
 		binary.LittleEndian.PutUint64(buf[40:48], uint64(t.oldestTS.UnixNano()))
@@ -196,8 +246,51 @@ func (t *Tier) Write(s *AggregatedSample) error {
 			_, _ = t.file.WriteAt(sentinel[:], headerSize+t.writeOff)
 		}
 		t.writeOff = 0
-		t.wrapped = true
+		if !t.wrapped {
+			// First wrap: every record from the just-finished pass becomes the
+			// "old" segment and the oldest one sits at offset 0.
+			t.wrapped = true
+			t.oldestOff = 0
+		}
 	}
+
+	// While wrapped, the record about to be written at [writeOff,
+	// writeOff+recordLen) may overlap one or more surviving old records.
+	// Advance the tail (oldestOff) past every old record we are about to
+	// clobber, reading each old length BEFORE it is overwritten. This keeps
+	// oldestOff on a real record boundary no matter how record sizes vary
+	// across the wrap — the root cause of the bogus "oldest timestamp" and the
+	// dropped history was assuming that boundary was always at writeOff.
+	if t.wrapped {
+		newHead := t.writeOff + int64(recordLen)
+		for t.oldestOff < newHead {
+			oldLen, ok := t.recordLenAt(t.oldestOff)
+			if !ok {
+				// Sentinel or end of the old region: the tail has caught the
+				// head, so the ring is contiguous [0, newHead) again.
+				t.wrapped = false
+				t.oldestOff = 0
+				break
+			}
+			t.oldestOff += 4 + oldLen
+			if t.oldestOff >= t.maxData {
+				t.wrapped = false
+				t.oldestOff = 0
+				break
+			}
+		}
+		// The advance can land exactly on the sentinel that marks the end of
+		// the old region (the last old record was just consumed). That isn't a
+		// real record, so the old segment is now empty: the ring is contiguous
+		// [0, newHead) and the oldest record is at offset 0.
+		if t.wrapped {
+			if _, ok := t.recordLenAt(t.oldestOff); !ok {
+				t.wrapped = false
+				t.oldestOff = 0
+			}
+		}
+	}
+
 	var lenBuf [4]byte
 	binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(data)))
 
@@ -212,18 +305,18 @@ func (t *Tier) Write(s *AggregatedSample) error {
 	t.writeOff += int64(recordLen)
 	t.count++
 	t.newestTS = s.Timestamp
-	if t.oldestTS.IsZero() {
-		t.oldestTS = s.Timestamp
-	}
 
-	// When the ring buffer has wrapped, oldestTS must track the actual oldest
-	// surviving record, which is the one now sitting at writeOff (the next
-	// slot we will overwrite). Refresh it on every write so that
-	// QueryRangeWithMeta always gets an accurate lower bound.
+	// Keep oldestTS pinned to the actual oldest surviving record.
 	if t.wrapped {
-		if ts, err := t.readTimestampAt(t.writeOff % t.maxData); err == nil {
+		// oldestOff points at a valid record boundary (maintained above).
+		if ts, err := t.readTimestampAt(t.oldestOff); err == nil {
 			t.oldestTS = ts
 		}
+	} else if ts, err := t.readTimestampAt(0); err == nil {
+		// Not wrapped: records were only appended, so the oldest is at offset 0.
+		t.oldestTS = ts
+	} else if t.oldestTS.IsZero() {
+		t.oldestTS = s.Timestamp
 	}
 
 	// Bump codec version to binary on first write to a legacy JSON file.
@@ -260,7 +353,7 @@ func (t *Tier) ReadRange(from, to time.Time) ([]*AggregatedSample, error) {
 	var segments []segment
 
 	if t.wrapped {
-		seg1 := segment{t.writeOff, t.maxData - t.writeOff}
+		seg1 := segment{t.oldestOff, t.maxData - t.oldestOff}
 		seg2 := segment{0, t.writeOff}
 
 		if t.codecVer >= codecVersion2 && t.writeOff > 0 {
@@ -364,7 +457,7 @@ func (t *Tier) ReadLatest(n int) ([]*AggregatedSample, error) {
 	var segments []segment
 
 	if t.wrapped {
-		segments = append(segments, segment{t.writeOff, t.maxData - t.writeOff})
+		segments = append(segments, segment{t.oldestOff, t.maxData - t.oldestOff})
 		segments = append(segments, segment{0, t.writeOff})
 	} else {
 		segments = append(segments, segment{0, t.writeOff})
@@ -468,6 +561,23 @@ func (t *Tier) readRecord(data []byte) (*AggregatedSample, error) {
 	}
 }
 
+// recordLenAt reads just the 4-byte length prefix of the record at the given
+// data-region offset. It returns the payload length (excluding the prefix) and
+// whether it looks like a real record. A zero or out-of-range length means a
+// sentinel or the end of the old region. Must be called under at least a read
+// lock (Write holds the write lock, which is sufficient).
+func (t *Tier) recordLenAt(dataOffset int64) (int64, bool) {
+	var buf [4]byte
+	if _, err := t.file.ReadAt(buf[:], headerSize+dataOffset); err != nil {
+		return 0, false
+	}
+	dataLen := binary.LittleEndian.Uint32(buf[:])
+	if dataLen == 0 || int64(dataLen) > t.maxData {
+		return 0, false
+	}
+	return int64(dataLen), true
+}
+
 // readTimestampAt reads the timestamp of the record at the given data-region
 // offset. Returns an error if the record is invalid. Must be called under at
 // least a read lock (Write holds the write lock, which is sufficient).
@@ -555,7 +665,7 @@ func (t *Tier) migrateToBinary() error {
 	var segments []segment
 	if t.wrapped {
 		segments = []segment{
-			{t.writeOff, t.maxData - t.writeOff},
+			{t.oldestOff, t.maxData - t.oldestOff},
 			{0, t.writeOff},
 		}
 	} else {
@@ -643,6 +753,7 @@ func (t *Tier) migrateToBinary() error {
 	// 4. RESET STALE STATE before reading the new header
 	// This prevents the "wrapped" state leak bug.
 	t.wrapped = false
+	t.oldestOff = 0
 	t.count = 0
 	t.writeOff = 0
 	t.oldestTS = time.Time{}
@@ -729,7 +840,13 @@ func InspectTierFile(path string) (*TierInfo, error) {
 		info.NewestTS = time.Unix(0, newestNano)
 	}
 
-	if info.Count > 0 {
+	headerFlags := binary.LittleEndian.Uint32(buf[4:8])
+	if headerFlags&flagHeaderHasTail != 0 {
+		// Trust the persisted wrap state written by tail-tracking code.
+		info.Wrapped = headerFlags&flagHeaderWrapped != 0
+	} else if info.Count > 0 {
+		// Pre-fix file: fall back to the legacy file-size heuristic. Once the
+		// server reopens and rewrites the header, the flag path above takes over.
 		fileInfo, _ := f.Stat()
 		if fileInfo != nil && fileInfo.Size() > headerSize+info.WriteOff {
 			info.Wrapped = true
