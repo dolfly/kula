@@ -85,13 +85,14 @@ func OpenTier(path string, maxSize int64) (*Tier, error) {
 
 	if info.Size() >= headerSize {
 		if err := t.readHeader(); err != nil {
-			// Corrupted header — reinitialize
-			t.writeOff = 0
-			t.count = 0
-			if err := t.writeHeader(); err != nil {
-				_ = f.Close()
-				return nil, err
-			}
+			// A header that won't parse means the file is corrupt or not a Kula
+			// tier. Refuse to open it. The previous behavior reinitialized in
+			// place — it overwrote the header with a zeroed one, silently
+			// abandoning (and then overwriting) any still-intact data. Failing
+			// loudly instead lets the operator inspect or move the file aside.
+			_ = f.Close()
+			return nil, fmt.Errorf("tier %s: corrupt or unreadable header: %w; "+
+				"refusing to open so existing data is not destroyed — move the file aside to start fresh", path, err)
 		}
 	} else {
 		t.writeOff = 0
@@ -242,6 +243,12 @@ func (t *Tier) writeHeader() error {
 
 // Write stores a sample in the ring buffer.
 func (t *Tier) Write(s *AggregatedSample) error {
+	// Defensive: a nil sample would panic in the encoder. Callers never pass
+	// nil today, but turn a latent panic in the collection loop into a plain
+	// error so a single bad aggregate can't take the whole process down.
+	if s == nil {
+		return fmt.Errorf("tier %s: refusing to write nil sample", t.path)
+	}
 	// encodeSampleV returns [kind][preamble][fixed][variable...] — the full
 	// on-disk payload including the recordKindBinary byte at [0].
 	data, err := encodeSampleV(s)
@@ -551,6 +558,14 @@ func (t *Tier) Close() error {
 	defer t.mu.Unlock()
 	if err := t.writeHeader(); err != nil {
 		return err
+	}
+	// Flush header + data to stable storage so a clean shutdown or upgrade is
+	// durable. We deliberately do NOT fsync on every Write (too costly for the
+	// per-sample hot path); syncing here covers the common restart/upgrade
+	// case. A crash mid-operation can still lose the last few un-synced records.
+	if err := t.file.Sync(); err != nil {
+		_ = t.file.Close()
+		return fmt.Errorf("syncing tier %s on close: %w", t.path, err)
 	}
 	return t.file.Close()
 }

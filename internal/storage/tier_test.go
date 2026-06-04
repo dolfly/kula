@@ -35,10 +35,10 @@ func varSample(ts time.Time, nIfaces int) *AggregatedSample {
 	return &AggregatedSample{Timestamp: ts, Duration: time.Second, Data: makeVarSample(ts, nIfaces)}
 }
 
-// fullRead returns ReadRange over the whole history up to newest and asserts
-// the result is a single contiguous (1s-spaced) run ending at newest with its
-// oldest matching OldestTimestamp(). It returns the record count so callers can
-// detect history collapse.
+// fullReadChecked returns ReadRange over the whole history up to newest and
+// asserts the result is a single contiguous (1s-spaced) run ending at newest
+// with its oldest matching OldestTimestamp(). It returns the record count so
+// callers can detect history collapse.
 func fullReadChecked(t *testing.T, tier *Tier, base, newest time.Time) int {
 	t.Helper()
 	got, err := tier.ReadRange(base, newest.Add(time.Second))
@@ -64,6 +64,29 @@ func fullReadChecked(t *testing.T, tier *Tier, base, newest time.Time) int {
 			o.Format(time.RFC3339), got[0].Timestamp.Format(time.RFC3339))
 	}
 	return len(got)
+}
+
+// downgradeToPreFix rewrites a tier header to look like one written by the OLD
+// (pre-tail-tracking) binary: it clears the header-flags word and zeroes the
+// oldestOff field, leaving the data region and writeOff/count untouched. This
+// is exactly the on-disk shape a node carries when it upgrades from a release
+// before the tail-tracking change.
+func downgradeToPreFix(t *testing.T, path string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatalf("open for downgrade: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	hdr := make([]byte, headerSize)
+	if _, err := f.ReadAt(hdr, 0); err != nil {
+		t.Fatalf("read header: %v", err)
+	}
+	binary.LittleEndian.PutUint32(hdr[4:8], 0)   // clear hasTail/wrapped flags
+	binary.LittleEndian.PutUint64(hdr[56:64], 0) // clear oldestOff
+	if _, err := f.WriteAt(hdr, 0); err != nil {
+		t.Fatalf("write downgraded header: %v", err)
+	}
 }
 
 // TestWrapMisalignment is the original repro: fill+wrap with small records,
@@ -196,29 +219,6 @@ func TestWrapTailPersistsAcrossReopen(t *testing.T) {
 	}
 	if after := fullReadChecked(t, tier2, base, newest); after != before {
 		t.Errorf("full read returned %d records after reopen, want %d", after, before)
-	}
-}
-
-// downgradeToPreFix rewrites a tier header to look like one written by the OLD
-// (pre-tail-tracking) binary: it clears the header-flags word and zeroes the
-// oldestOff field, leaving the data region and writeOff/count untouched. This
-// is exactly the on-disk shape a node carries when it upgrades from a release
-// before the tail-tracking change.
-func downgradeToPreFix(t *testing.T, path string) {
-	t.Helper()
-	f, err := os.OpenFile(path, os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatalf("open for downgrade: %v", err)
-	}
-	defer func() { _ = f.Close() }()
-	hdr := make([]byte, headerSize)
-	if _, err := f.ReadAt(hdr, 0); err != nil {
-		t.Fatalf("read header: %v", err)
-	}
-	binary.LittleEndian.PutUint32(hdr[4:8], 0)   // clear hasTail/wrapped flags
-	binary.LittleEndian.PutUint64(hdr[56:64], 0) // clear oldestOff
-	if _, err := f.WriteAt(hdr, 0); err != nil {
-		t.Fatalf("write downgraded header: %v", err)
 	}
 }
 
@@ -384,5 +384,76 @@ func TestUpgradeCorruptNewFormatTailNeverWipes(t *testing.T) {
 	}
 	if gotN := fullReadChecked(t, tier2, base, newest); gotN != wantN {
 		t.Errorf("corrupt-tail recovery changed record count: got %d want %d", gotN, wantN)
+	}
+}
+
+// TestOpenTierCorruptHeaderFailsLoudWithoutWiping verifies that a corrupt header
+// makes OpenTier fail loudly and leaves the file untouched, instead of
+// reinitializing in place (which silently abandoned, then overwrote, intact data).
+func TestOpenTierCorruptHeaderFailsLoudWithoutWiping(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/tier_0.dat"
+
+	tier, err := OpenTier(path, 64*1024)
+	if err != nil {
+		t.Fatalf("OpenTier: %v", err)
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 50; i++ {
+		if err := tier.Write(varSample(base.Add(time.Duration(i)*time.Second), 2)); err != nil {
+			t.Fatalf("Write(%d): %v", i, err)
+		}
+	}
+	if err := tier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read original: %v", err)
+	}
+
+	// Corrupt only the 4-byte magic.
+	f, err := os.OpenFile(path, os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatalf("open to corrupt: %v", err)
+	}
+	if _, err := f.WriteAt([]byte("XXXX"), 0); err != nil {
+		t.Fatalf("corrupt magic: %v", err)
+	}
+	_ = f.Close()
+
+	if _, err := OpenTier(path, 64*1024); err == nil {
+		t.Fatal("OpenTier on a corrupt header returned nil; it must fail loudly, not reinitialize")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if len(after) != len(orig) {
+		t.Fatalf("file size changed %d -> %d; OpenTier must not rewrite a corrupt file", len(orig), len(after))
+	}
+	// Everything past the 4 magic bytes we deliberately corrupted must be
+	// byte-identical — proving OpenTier neither zeroed the header nor touched
+	// the data region.
+	for i := 4; i < len(orig); i++ {
+		if orig[i] != after[i] {
+			t.Fatalf("OpenTier mutated the file at offset %d — data was not preserved", i)
+		}
+	}
+}
+
+// TestTierWriteNilReturnsError verifies Write(nil) returns an error rather than
+// panicking the collection loop.
+func TestTierWriteNilReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	tier, err := OpenTier(dir+"/tier_0.dat", 64*1024)
+	if err != nil {
+		t.Fatalf("OpenTier: %v", err)
+	}
+	defer func() { _ = tier.Close() }()
+	if err := tier.Write(nil); err == nil {
+		t.Error("Write(nil) returned nil; expected an error (and no panic)")
 	}
 }
