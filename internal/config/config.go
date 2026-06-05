@@ -401,7 +401,21 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Load reads the configuration from path, falling back to defaults when the
+// file does not exist. Use LoadRequired when the path was explicitly requested
+// by the user and a missing file should be treated as a fatal error.
 func Load(path string) (*Config, error) {
+	return load(path, false)
+}
+
+// LoadRequired behaves like Load but fails if the config file is missing or
+// unreadable, so an explicitly specified -config path can't be silently
+// ignored.
+func LoadRequired(path string) (*Config, error) {
+	return load(path, true)
+}
+
+func load(path string, mustExist bool) (*Config, error) {
 	cfg := DefaultConfig()
 
 	data, err := os.ReadFile(path)
@@ -409,6 +423,8 @@ func Load(path string) (*Config, error) {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("parsing config: %w", err)
 		}
+	} else if mustExist {
+		return nil, fmt.Errorf("reading config %q: %w", path, err)
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}

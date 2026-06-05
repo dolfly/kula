@@ -57,6 +57,19 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to configuration file")
 	flag.Parse()
 
+	// Track whether -config was explicitly provided. When it is, a missing or
+	// unreadable file must abort startup rather than silently using defaults.
+	configExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			configExplicit = true
+		}
+	})
+	loadConfig := config.Load
+	if configExplicit {
+		loadConfig = config.LoadRequired
+	}
+
 	if showVersion || showVersionShort {
 		fmt.Printf("Kula v%s — Lightweight Linux Server Monitor\n", version)
 		os.Exit(0)
@@ -80,7 +93,7 @@ func main() {
 		password := readPasswordWithAsterisks()
 
 		// Load config
-		cfg, err := config.Load(*configPath)
+		cfg, err := loadConfig(*configPath)
 		if err != nil {
 			log.Fatalf("Failed to load config: %v", err)
 		}
@@ -90,7 +103,7 @@ func main() {
 	}
 
 	// Load config for other commands
-	cfg, err := config.Load(*configPath)
+	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

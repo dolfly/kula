@@ -87,6 +87,41 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 }
 
+func TestLoadRequiredMissingFile(t *testing.T) {
+	if _, err := LoadRequired("/nonexistent/path/config.yaml"); err == nil {
+		t.Fatal("LoadRequired() with missing file should return an error, got nil")
+	}
+}
+
+func TestLoadRequiredUnreadableFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root bypasses file permission checks")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("web:\n  port: 9090\n"), 0000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadRequired(path); err == nil {
+		t.Fatal("LoadRequired() with unreadable file should return an error, got nil")
+	}
+}
+
+func TestLoadRequiredPresentFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("web:\n  port: 9090\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadRequired(path)
+	if err != nil {
+		t.Fatalf("LoadRequired() error: %v", err)
+	}
+	if cfg.Web.Port != 9090 {
+		t.Errorf("Web.Port = %d, want 9090", cfg.Web.Port)
+	}
+}
+
 func TestLoadValidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

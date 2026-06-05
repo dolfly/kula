@@ -12,6 +12,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 ### Fixed
 
 - revert the monotonic-timestamp clamp
+- refuse to start when an explicitly specified `-config` file is missing
 
 ## [0.18.0] - 2026-06-04
 
