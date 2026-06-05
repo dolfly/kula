@@ -4,6 +4,7 @@ set -e
 
 GREEN="\033[0;32m"
 CYAN="\033[0;36m"
+RED="\033[0;31m"
 RESET="\033[0m"
 
 cd "$(dirname "$0")/.."
@@ -19,6 +20,15 @@ else
     echo "Skipping govulncheck: not found"
     echo "Install with: go install golang.org/x/vuln/cmd/govulncheck@latest" ; sleep 3
 fi
+
+echo -e "${CYAN}Checking gofmt...${RESET}"
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+    echo -e "${RED}The following files need formatting (run: gofmt -w .):${RESET}"
+    echo "$unformatted"
+    exit 1
+fi
+echo "All files are properly formatted"
 
 echo -e "${CYAN}Running go vet...${RESET}"
 go vet ./...
