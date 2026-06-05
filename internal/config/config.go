@@ -588,8 +588,15 @@ func (c *Config) validateTiers() error {
 			tiers[0].Resolution, c.Collection.Interval)
 	}
 
-	// Tier 0 allowed values: 1s, 2s, 5s, 10s, 15s, 30s.
+	// Tier 0 allowed values: 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s, 15s, 30s.
 	allowed := []time.Duration{
+		// sub-second values for testing purposes
+		// we do not support them officially
+		50 * time.Millisecond,
+		100 * time.Millisecond,
+		250 * time.Millisecond,
+		500 * time.Millisecond,
+		// officially supported values
 		time.Second,
 		2 * time.Second,
 		5 * time.Second,

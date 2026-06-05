@@ -229,6 +229,23 @@ func TestValidateTiers(t *testing.T) {
 			},
 		},
 		{
+			name:     "valid sub-second interval",
+			interval: 500 * time.Millisecond,
+			tiers: []TierConfig{
+				{Resolution: 500 * time.Millisecond, MaxSize: "10MB"},
+				{Resolution: time.Second, MaxSize: "10MB"},
+				{Resolution: time.Minute, MaxSize: "10MB"},
+			},
+		},
+		{
+			name:     "valid 100ms interval",
+			interval: 100 * time.Millisecond,
+			tiers: []TierConfig{
+				{Resolution: 100 * time.Millisecond, MaxSize: "10MB"},
+				{Resolution: time.Second, MaxSize: "10MB"},
+			},
+		},
+		{
 			name:     "interval != tier0 resolution",
 			interval: 5 * time.Second,
 			tiers: []TierConfig{
