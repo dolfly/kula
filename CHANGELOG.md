@@ -11,7 +11,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 ### Added
 
-- Time window/range/agg in URLs
+- Time window/range/agg in URLs co-authored by @apre
 
 ### Fixed
 
