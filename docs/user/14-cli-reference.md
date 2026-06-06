@@ -65,7 +65,7 @@ wrapped, and the total time range covered.
 
 | Flag | Description |
 |------|-------------|
-| `-config <path>` | Path to the configuration file (default `config.yaml`). |
+| `-config <path>` | Path to the configuration file (default `config.yaml`). If the path is given explicitly but does not exist, Kula seeds it from the packaged example config (logging a warning) instead of failing. |
 | `-version`, `-v` | Print version and exit. |
 | `-h`, `--help` | Show usage. |
 

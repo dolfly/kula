@@ -6,6 +6,11 @@ All settings live in `config.yaml`. Kula looks for it via the `-config` flag (de
 
 Every section is optional — omitted settings fall back to built-in defaults.
 
+If you start Kula with an explicit `-config <path>` that doesn't exist yet, Kula seeds that
+path from the packaged example config (the same `config.example.yaml`, embedded in the binary
+at build time) and logs a warning, rather than refusing to start. The file is written with
+`0600` permissions; edit it and restart to apply your settings.
+
 ## Environment variable overrides
 
 A handful of settings can be overridden by environment variables, which take precedence over
