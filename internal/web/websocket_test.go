@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"kula/internal/collector"
 	"kula/internal/config"
 )

@@ -47,11 +47,12 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"kula/internal/collector"
 	"math"
 	"sort"
 	"sync"
 	"time"
+
+	"kula/internal/collector"
 )
 
 // Flags packed into the 2-byte preamble flags field.

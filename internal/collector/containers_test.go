@@ -66,7 +66,7 @@ func TestContainerCollector(t *testing.T) {
 	if s.Name != "test-container" {
 		t.Errorf("Expected test-container, got %s", s.Name)
 	}
-	if !strings.HasPrefix("c1234567890abcdef", s.ID) {
+	if !strings.HasPrefix("c1234567890abcdef", s.ID) { //nolint:gocritic // argOrder: intentionally checks s.ID is a prefix of the mock ID
 		t.Errorf("Expected s.ID to be a prefix of the mock ID, got %s", s.ID)
 	}
 }

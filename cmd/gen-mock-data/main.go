@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+
 	// nosemgrep: math-random-used -- dev-only mock data generator; no security relevance
 	"math/rand"
 	"os"
@@ -128,7 +129,7 @@ type generator struct {
 
 func newGenerator() *generator {
 	return &generator{
-		rng:         rand.New(rand.NewSource(time.Now().UnixNano())), // nosemgrep: math-random-used
+		rng:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec // G404: dev-only mock-data generator, no security relevance // nosemgrep: math-random-used
 		cpuBase:     15,
 		cpuTemp:     45,
 		memUsed:     uint64(1.5 * 1024 * 1024 * 1024),

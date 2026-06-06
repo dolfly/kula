@@ -1,7 +1,6 @@
 package web
 
 import (
-	"kula/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"kula/internal/config"
 )
 
 var defaultArgonParams = config.Argon2Config{

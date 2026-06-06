@@ -136,17 +136,16 @@ func (c *Collector) collectMysql(elapsed float64) *MysqlStats {
 		c.debugf("[mysql] SHOW GLOBAL STATUS error: %v", err)
 		return nil
 	}
+	defer func() { _ = rows.Close() }()
 
 	statusVars := make(map[string]string)
 	for rows.Next() {
 		var name, val string
 		if err := rows.Scan(&name, &val); err != nil {
-			_ = rows.Close()
 			return nil
 		}
 		statusVars[name] = val
 	}
-	_ = rows.Close()
 
 	if err := rows.Err(); err != nil {
 		c.debugf("[mysql] SHOW GLOBAL STATUS iteration error: %v", err)

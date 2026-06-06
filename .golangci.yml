@@ -1,0 +1,72 @@
+version: "2"
+
+linters:
+  # Start from the default set (errcheck, govet, ineffassign, staticcheck, unused)
+  default: standard
+  enable:
+    - bodyclose      # checks HTTP response bodies are closed
+    - copyloopvar    # detects unnecessary loop-var copies (Go 1.22+)
+    - durationcheck  # catches multiplying two durations
+    - errorlint      # correct error wrapping / comparison
+    - gocritic       # broad set of opinionated diagnostics
+    - gosec          # security-focused checks
+    - misspell       # spelling mistakes in comments/strings
+    - nilerr         # returning nil when err is non-nil
+    - nolintlint     # keeps //nolint directives honest
+    - predeclared    # shadowing of predeclared identifiers
+    - revive         # modern golint replacement
+    - sqlclosecheck  # checks sql.Rows/Stmt are closed
+    - unconvert      # unnecessary type conversions
+    - wastedassign   # assignments never used
+    # prealloc and unparam are intentionally omitted: in this codebase they only
+    # flag micro-optimizations and deliberately-generic helper signatures.
+
+  settings:
+    gosec:
+      excludes:
+        - G104  # duplicate of errcheck
+        - G115  # integer overflow on conversion: noisy for a metrics tool, mostly false positives
+        - G124  # cookie Secure flag is set conditionally so kula also works over plain-HTTP LANs
+        - G302  # 0660 perms are intentional for the group-accessible custom-metrics socket
+        - G703  # path-traversal taint analysis: paths are system-derived (sysfs/proc), not user input
+        - G705  # XSS taint analysis: responses use explicit non-HTML Content-Type
+        - G706  # log-injection taint analysis: experimental and very noisy, low signal
+    gocritic:
+      disabled-checks:
+        - ifElseChain    # if/else chains are fine; switch is not always clearer
+        - exitAfterDefer # idiomatic log.Fatalf/os.Exit in CLI main()
+    revive:
+      rules:
+        - name: exported
+          disabled: true  # too noisy for an existing codebase; enable later if wanted
+
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      # Relax noisy checks in tests
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - predeclared  # test helpers named min/max predate the Go builtins
+          - bodyclose    # gorilla websocket handshake bodies need no close
+      # gorilla/websocket documents that the handshake *http.Response body does
+      # not need to be closed; wsDial returns it only for status inspection.
+      - linters:
+          - bodyclose
+        source: wsDial\(
+
+formatters:
+  # NOTE: gofumpt is intentionally not enabled. The module is named "kula"
+  # (no dot in the path), so gofumpt's import classifier treats kula/... as
+  # stdlib and fights goimports' local-prefixes grouping in an unfixable loop.
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - kula  # keep project imports in their own group

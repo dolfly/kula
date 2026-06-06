@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -83,7 +84,7 @@ func (cc *customCollector) acceptLoop(ctx context.Context) {
 				return
 			default:
 				// Listener closed or transient error
-				if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
+				if errors.Is(err, net.ErrClosed) {
 					return
 				}
 				log.Printf("[custom] accept error: %v", err)

@@ -1,8 +1,9 @@
 package collector
 
 import (
-	"kula/internal/config"
 	"testing"
+
+	"kula/internal/config"
 )
 
 func TestParseDiskStats(t *testing.T) {

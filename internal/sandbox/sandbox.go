@@ -206,8 +206,9 @@ func Enforce(configPath string, storageDir string, webCfg config.WebConfig, appC
 		}
 	}
 
-	// Combine all rules
-	allRules := append(fsRules, netRules...)
+	// Combine all rules. fsRules is not used after this point, so appending
+	// into its backing array is safe.
+	allRules := append(fsRules, netRules...) //nolint:gocritic // appendAssign: fsRules is not reused
 
 	// Apply Landlock restrictions using V5 with BestEffort.
 	// V5 (kernel 6.7+) includes: filesystem + networking + ioctl on devices.

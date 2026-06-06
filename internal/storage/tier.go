@@ -681,7 +681,9 @@ func (t *Tier) migrateToBinary() error {
 	if err := syscall.Statfs(filepath.Dir(t.path), &stat); err != nil {
 		return fmt.Errorf("statfs failed: %w", err)
 	}
-	available := int64(stat.Bavail) * int64(stat.Bsize)
+	// Bavail/Bsize widths vary by GOARCH (int32 on some platforms), so the
+	// conversions are needed for cross-arch builds even if redundant here.
+	available := int64(stat.Bavail) * int64(stat.Bsize) //nolint:unconvert // platform-dependent field widths
 	required := headerSize + t.maxData
 	if available < required {
 		return fmt.Errorf("insufficient disk space for migration: need %d MB, have %d MB", required/1e6, available/1e6)

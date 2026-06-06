@@ -1,10 +1,11 @@
 package collector
 
 import (
-	"kula/internal/config"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"kula/internal/config"
 )
 
 func TestParseProcStat(t *testing.T) {

@@ -3,9 +3,10 @@ package storage
 import (
 	"encoding/binary"
 	"encoding/json"
-	"kula/internal/collector"
 	"testing"
 	"time"
+
+	"kula/internal/collector"
 )
 
 // ---- helpers ----------------------------------------------------------------

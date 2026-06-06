@@ -9,6 +9,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -490,7 +491,7 @@ func (s *Server) Start() error {
 		}(ln)
 	}
 
-	if err := <-errCh; err != nil && err != http.ErrServerClosed {
+	if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
@@ -1011,7 +1012,11 @@ func (s *Server) initializeTemplates() {
 
 func (s *Server) calculateSRIs() {
 	_ = fs.WalkDir(staticFS, "static", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".js") {
+		if err != nil {
+			log.Printf("Warning: SRI walk error at %s: %v", path, err)
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".js") {
 			return nil
 		}
 

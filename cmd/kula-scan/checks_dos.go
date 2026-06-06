@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -92,7 +93,8 @@ func runSlowlorisCheck(s *Scanner) []Finding {
 				reaped[i] = true // server sent something (e.g. 408 Request Timeout) and will close
 				return
 			}
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
 				reaped[i] = false // still hanging open at dosWait
 				return
 			}
@@ -226,7 +228,8 @@ func runConnFloodCheck(s *Scanner) []Finding {
 			reaped++
 			continue
 		}
-		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
 			continue
 		}
 		reaped++

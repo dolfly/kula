@@ -2,11 +2,12 @@ package collector
 
 import (
 	"context"
-	"kula/internal/config"
 	"log"
 	"net/http"
 	"sync"
 	"time"
+
+	"kula/internal/config"
 )
 
 var (

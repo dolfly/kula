@@ -3,7 +3,6 @@ package collector
 import (
 	"context"
 	"encoding/json"
-	"kula/internal/config"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"kula/internal/config"
 )
 
 func TestNginxCollector(t *testing.T) {

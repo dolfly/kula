@@ -102,7 +102,7 @@ func (s *Schedule) Matches(t time.Time) bool {
 
 // parseField parses a single crontab field into a bitmask over [min, max] and
 // reports whether the field is a bare "*" (relevant only for dom/dow).
-func parseField(field string, min, max int) (uint64, bool, error) {
+func parseField(field string, minVal, maxVal int) (uint64, bool, error) {
 	star := field == "*"
 	var bits uint64
 
@@ -125,7 +125,7 @@ func parseField(field string, min, max int) (uint64, bool, error) {
 		var lo, hi int
 		switch {
 		case rng == "*":
-			lo, hi = min, max
+			lo, hi = minVal, maxVal
 		case strings.Contains(rng, "-"):
 			bounds := strings.SplitN(rng, "-", 2)
 			a, err1 := strconv.Atoi(bounds[0])
@@ -142,14 +142,14 @@ func parseField(field string, min, max int) (uint64, bool, error) {
 			lo = v
 			// A single value with a step ("a/n") means "a, a+n, ... up to max".
 			if step > 1 {
-				hi = max
+				hi = maxVal
 			} else {
 				hi = v
 			}
 		}
 
-		if lo < min || hi > max || lo > hi {
-			return 0, false, fmt.Errorf("value out of range in %q (allowed %d-%d)", part, min, max)
+		if lo < minVal || hi > maxVal || lo > hi {
+			return 0, false, fmt.Errorf("value out of range in %q (allowed %d-%d)", part, minVal, maxVal)
 		}
 		for i := lo; i <= hi; i += step {
 			bits |= 1 << uint(i)

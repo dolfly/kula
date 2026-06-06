@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"kula/internal/collector"
 	"kula/internal/i18n"
 )

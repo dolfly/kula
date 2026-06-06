@@ -1,12 +1,13 @@
 package storage
 
 import (
-	"kula/internal/collector"
-	"kula/internal/config"
 	"os"
 	"sync"
 	"testing"
 	"time"
+
+	"kula/internal/collector"
+	"kula/internal/config"
 )
 
 // ---- Store helpers ----------------------------------------------------------

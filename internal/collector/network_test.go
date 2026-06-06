@@ -1,9 +1,10 @@
 package collector
 
 import (
-	"kula/internal/config"
 	"os"
 	"testing"
+
+	"kula/internal/config"
 )
 
 func TestParseNetDev(t *testing.T) {

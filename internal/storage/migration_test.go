@@ -3,11 +3,12 @@ package storage
 import (
 	"encoding/binary"
 	"encoding/json"
-	"kula/internal/collector"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"kula/internal/collector"
 )
 
 func TestTierMigration_JSONToBinary(t *testing.T) {
