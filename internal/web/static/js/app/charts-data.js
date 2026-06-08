@@ -726,12 +726,13 @@ export function addSampleToCharts(item, ts) {
                 ], { beginAtZero: true, ticks: { callback: v => v + '%' } });
             }
 
-            // Memory chart (absolute bytes)
+            // Memory chart (absolute bytes) \u2014 usage only; the limit is shown in
+            // the subtitle since it is typically the host total RAM and would
+            // otherwise flatten the usage line against the top of the chart.
             if (!state.containerCharts[memKey]) {
                 createAppChartCard(`card-${memKey}`, `chart-${memKey}`, `${memKey}-subtitle`, `${label} \u2014 Memory`, APP_ORDER_CONTAINERS + 1);
                 state.containerCharts[memKey] = createTimeSeriesChart(`chart-${memKey}`, [
                     { label: 'Used', borderColor: colors.purple, backgroundColor: colors.purpleAlpha, fill: true, data: [] },
-                    { label: 'Limit', borderColor: colors.red, data: [], fill: false, borderDash: [4, 2] },
                 ], { beginAtZero: true, ticks: { callback: v => formatBytesShort(v) } });
             }
 
@@ -756,8 +757,16 @@ export function addSampleToCharts(item, ts) {
             const memChart = state.containerCharts[memKey];
             if (memChart) {
                 memChart.data.datasets[0].data.push(point(ct.mem_used || 0));
-                memChart.data.datasets[1].data.push(point(ct.mem_limit || 0));
                 if (!state.loadingHistory) memChart.update('none');
+                const memSub = document.getElementById(`${memKey}-subtitle`);
+                if (memSub) {
+                    const used = formatBytesShort(ct.mem_used || 0);
+                    if (ct.mem_limit > 0) {
+                        memSub.textContent = `Used: ${used} / Limit: ${formatBytesShort(ct.mem_limit)} (${(ct.mem_pct || 0).toFixed(1)}%)`;
+                    } else {
+                        memSub.textContent = `Used: ${used}`;
+                    }
+                }
             }
 
             const ioChart = state.containerCharts[ioKey];

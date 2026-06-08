@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
-## [0.18.3] - 2026-06-08
+## [0.18.3] - 2026-06-09
+
+### Changed
+
+- plot container memory usage only, move limit to subtitle (#31)
 
 ### Fixed
 
