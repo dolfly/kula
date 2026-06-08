@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,56 @@ func TestContainerCollector(t *testing.T) {
 	if !strings.HasPrefix("c1234567890abcdef", s.ID) { //nolint:gocritic // argOrder: intentionally checks s.ID is a prefix of the mock ID
 		t.Errorf("Expected s.ID to be a prefix of the mock ID, got %s", s.ID)
 	}
+}
+
+func TestReadContainerMemory(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Point host-meminfo lookup at a fixture so the fallback is deterministic.
+	origProc := procPath
+	procPath = filepath.Join(dir, "proc")
+	if err := os.MkdirAll(procPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(procPath, "meminfo"), []byte("MemTotal: 4000000 kB\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { procPath = origProc }()
+	const hostTotal = 4000000 * 1024
+
+	t.Run("unlimited subtracts cache and falls back to host total", func(t *testing.T) {
+		// memory.current includes a large reclaimable file cache.
+		write("memory.current", "5599784960\n")
+		write("memory.stat", "anon 565674000\ninactive_file 5034110976\nactive_file 64589824\n")
+		write("memory.max", "max\n")
+
+		used, limit := readContainerMemory(dir)
+		if want := uint64(5599784960 - 5034110976); used != want {
+			t.Errorf("used = %d, want %d", used, want)
+		}
+		if limit != hostTotal {
+			t.Errorf("limit = %d, want host total %d", limit, hostTotal)
+		}
+	})
+
+	t.Run("explicit limit is used directly", func(t *testing.T) {
+		write("memory.current", "32145408\n")
+		write("memory.stat", "inactive_file 1048576\n")
+		write("memory.max", "104857600\n")
+
+		used, limit := readContainerMemory(dir)
+		if want := uint64(32145408 - 1048576); used != want {
+			t.Errorf("used = %d, want %d", used, want)
+		}
+		if limit != 104857600 {
+			t.Errorf("limit = %d, want 104857600", limit)
+		}
+	})
 }
 
 func TestContainerCollectorCgroupDetect(t *testing.T) {

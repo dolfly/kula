@@ -372,12 +372,10 @@ func (cc *containerCollector) collectContainerMetrics(id, name string, elapsed f
 	// CPU usage from cpu.stat
 	s.CPUPct = cc.readCPUUsage(cgroupDir, id, elapsed)
 
-	// Memory from memory.current + memory.max
-	s.MemUsed = readUint64File(filepath.Join(cgroupDir, "memory.current"))
-	memMax := readUint64File(filepath.Join(cgroupDir, "memory.max"))
-	if memMax > 0 && memMax < 1<<62 { // Exclude "max" sentinel value
-		s.MemLimit = memMax
-		s.MemPct = round2(float64(s.MemUsed) / float64(memMax) * 100)
+	// Memory, matching `docker stats` (usage excludes file cache).
+	s.MemUsed, s.MemLimit = readContainerMemory(cgroupDir)
+	if s.MemLimit > 0 {
+		s.MemPct = round2(float64(s.MemUsed) / float64(s.MemLimit) * 100)
 	}
 
 	// Network I/O (via /proc/<pid>/net/dev — needs container PID)
@@ -397,11 +395,9 @@ func (cc *containerCollector) collectContainerMetricsCgroup(cgroupDir, id, short
 	}
 
 	s.CPUPct = cc.readCPUUsage(cgroupDir, id, elapsed)
-	s.MemUsed = readUint64File(filepath.Join(cgroupDir, "memory.current"))
-	memMax := readUint64File(filepath.Join(cgroupDir, "memory.max"))
-	if memMax > 0 && memMax < 1<<62 {
-		s.MemLimit = memMax
-		s.MemPct = round2(float64(s.MemUsed) / float64(memMax) * 100)
+	s.MemUsed, s.MemLimit = readContainerMemory(cgroupDir)
+	if s.MemLimit > 0 {
+		s.MemPct = round2(float64(s.MemUsed) / float64(s.MemLimit) * 100)
 	}
 	s.DiskRBPS, s.DiskWBPS = cc.readDiskIO(cgroupDir, id, elapsed)
 
@@ -552,6 +548,45 @@ func (cc *containerCollector) readDiskIO(cgroupDir, id string, elapsed float64) 
 	}
 	cc.prevDisk[id] = cur
 	return
+}
+
+// readContainerMemory reads memory usage and limit from a cgroup v2 directory,
+// matching the values reported by `docker stats`:
+//   - usage is memory.current minus the inactive file cache (inactive_file),
+//     since the page cache is reclaimable and not counted as container usage.
+//   - when no limit is configured (memory.max is "max"), the host's total
+//     memory is reported as the limit, as Docker does.
+func readContainerMemory(cgroupDir string) (used, limit uint64) {
+	current := readUint64File(filepath.Join(cgroupDir, "memory.current"))
+	inactiveFile := readMemStatField(filepath.Join(cgroupDir, "memory.stat"), "inactive_file")
+	if current > inactiveFile {
+		used = current - inactiveFile
+	}
+
+	memMax := readUint64File(filepath.Join(cgroupDir, "memory.max"))
+	if memMax > 0 && memMax < 1<<62 { // explicit limit set (excludes "max" sentinel)
+		limit = memMax
+	} else {
+		// No limit configured — report host total memory like `docker stats`.
+		limit = parseMemInfo().memTotal
+	}
+	return used, limit
+}
+
+// readMemStatField reads a single numeric field from a cgroup memory.stat file.
+func readMemStatField(path, field string) uint64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	prefix := field + " "
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			v, _ := strconv.ParseUint(strings.TrimPrefix(line, prefix), 10, 64)
+			return v
+		}
+	}
+	return 0
 }
 
 // readUint64File reads a file and parses its content as uint64.

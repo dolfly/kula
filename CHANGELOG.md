@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
+## [0.18.3] - 2026-06-08
+
+### Fixed
+
+- container memory usage and limit now match docker stats (#31)
+
 ## [0.18.2] - 2026-06-06
 
 ### Added
