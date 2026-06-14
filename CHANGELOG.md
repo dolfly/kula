@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
+## [0.18.4] - TBA
+
+### Fixed
+
+- custom metrics: dedup repeated metric names per message (last value wins),
+  preventing duplicate Prometheus series and rejected scrapes
+- custom metrics: data race on the debug flag; surface oversized/failed socket
+  reads instead of dropping them silently
+
+### Changed
+
+- custom metrics: reap idle socket connections after 5m; emit values in config order
+
 ## [0.18.3] - 2026-06-09
 
 ### Changed

@@ -487,3 +487,42 @@ func TestCustomCollector(t *testing.T) {
 		t.Errorf("Expected 1234, got %.2f", latest["fans"][0].Value)
 	}
 }
+
+// TestCustomCollectorDedup verifies that a single message collapses to one value
+// per configured name (last writer wins), emits in config order regardless of
+// input order, and drops unconfigured names. Without this, a repeated name would
+// produce duplicate downstream series (e.g. a rejected Prometheus scrape).
+func TestCustomCollectorDedup(t *testing.T) {
+	configs := map[string][]config.CustomMetricConfig{
+		"fans": {{Name: "fan1"}, {Name: "fan2"}},
+	}
+	set, order := indexConfigs(configs)
+	cc := &customCollector{
+		latest:      make(map[string][]CustomMetricValue),
+		configSet:   set,
+		configOrder: order,
+	}
+
+	cc.processMessage(map[string][]map[string]float64{
+		"fans": {
+			{"fan2": 800},
+			{"fan1": 100},
+			{"fan1": 200}, // duplicate of fan1 — must overwrite 100
+			{"nope": 999}, // unconfigured — must be dropped
+		},
+	})
+
+	got := cc.Latest()["fans"]
+	want := []CustomMetricValue{
+		{Name: "fan1", Value: 200},
+		{Name: "fan2", Value: 800},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d metrics, got %d: %+v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("metric %d: expected %+v, got %+v", i, want[i], got[i])
+		}
+	}
+}

@@ -10,9 +10,17 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"kula/internal/config"
 )
+
+// customConnIdleTimeout bounds how long a connection may sit without sending a
+// line before it is closed. It reaps dead or hung clients while staying well
+// above any realistic push interval, so active streaming producers that push on
+// the collection loop are never dropped mid-stream.
+const customConnIdleTimeout = 5 * time.Minute
 
 // customCollector listens on a Unix socket for JSON-encoded custom metrics.
 //
@@ -25,13 +33,37 @@ import (
 // incoming metric names to the configured CustomMetricConfig entries to validate
 // and store values.
 type customCollector struct {
-	mu        sync.RWMutex
-	latest    map[string][]CustomMetricValue
-	configs   map[string][]config.CustomMetricConfig
-	sockPath  string
-	listener  net.Listener
-	debug     bool
-	debugDone bool
+	mu          sync.RWMutex
+	latest      map[string][]CustomMetricValue
+	configSet   map[string]map[string]struct{} // group -> set of configured names (membership)
+	configOrder map[string][]string            // group -> configured names in config order
+	sockPath    string
+	listener    net.Listener
+	debug       bool
+	debugDone   atomic.Bool
+}
+
+// indexConfigs precomputes, per group, the set of configured metric names (for
+// O(1) membership tests) and their declaration order (for deterministic output).
+// Duplicate names within a group's config are collapsed — first occurrence wins.
+// Built once at construction so processMessage allocates no per-message lookup.
+func indexConfigs(configs map[string][]config.CustomMetricConfig) (set map[string]map[string]struct{}, order map[string][]string) {
+	set = make(map[string]map[string]struct{}, len(configs))
+	order = make(map[string][]string, len(configs))
+	for group, cfgs := range configs {
+		names := make(map[string]struct{}, len(cfgs))
+		ordered := make([]string, 0, len(cfgs))
+		for _, c := range cfgs {
+			if _, dup := names[c.Name]; dup {
+				continue
+			}
+			names[c.Name] = struct{}{}
+			ordered = append(ordered, c.Name)
+		}
+		set[group] = names
+		order[group] = ordered
+	}
+	return set, order
 }
 
 // customMessage is the expected JSON envelope from socket clients.
@@ -54,12 +86,14 @@ func newCustomCollector(ctx context.Context, sockPath string, configs map[string
 		log.Printf("[custom] warning: chmod socket: %v", err)
 	}
 
+	set, order := indexConfigs(configs)
 	cc := &customCollector{
-		latest:   make(map[string][]CustomMetricValue),
-		configs:  configs,
-		sockPath: sockPath,
-		listener: listener,
-		debug:    debug,
+		latest:      make(map[string][]CustomMetricValue),
+		configSet:   set,
+		configOrder: order,
+		sockPath:    sockPath,
+		listener:    listener,
+		debug:       debug,
 	}
 
 	go cc.acceptLoop(ctx)
@@ -69,7 +103,7 @@ func newCustomCollector(ctx context.Context, sockPath string, configs map[string
 }
 
 func (cc *customCollector) debugf(format string, args ...any) {
-	if cc.debug && !cc.debugDone {
+	if cc.debug && !cc.debugDone.Load() {
 		log.Printf(format, args...)
 	}
 }
@@ -91,7 +125,7 @@ func (cc *customCollector) acceptLoop(ctx context.Context) {
 				continue
 			}
 		}
-		if cc.debug && !cc.debugDone {
+		if cc.debug && !cc.debugDone.Load() {
 			log.Printf("[custom] new connection from %v", conn.RemoteAddr())
 		}
 		go cc.handleConn(conn)
@@ -105,7 +139,15 @@ func (cc *customCollector) handleConn(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024) // 64KB max message
 
-	for scanner.Scan() {
+	for {
+		// Reset the idle deadline before each read: a client pushing on the
+		// collection interval keeps the connection alive, while one that
+		// connects and goes silent is reaped after customConnIdleTimeout.
+		_ = conn.SetReadDeadline(time.Now().Add(customConnIdleTimeout))
+		if !scanner.Scan() {
+			break
+		}
+
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
@@ -125,6 +167,13 @@ func (cc *customCollector) handleConn(conn net.Conn) {
 
 		cc.processMessage(msg.Custom)
 	}
+
+	// A clean disconnect (io.EOF) and the idle timeout are both expected and go
+	// unreported; surface only genuine read failures such as an over-long line
+	// (bufio.ErrTooLong), which would otherwise drop a payload silently.
+	if err := scanner.Err(); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
+		log.Printf("[custom] read error from %v: %v", conn.RemoteAddr(), err)
+	}
 }
 
 // processMessage converts incoming raw metrics into validated CustomMetricValues.
@@ -133,37 +182,41 @@ func (cc *customCollector) processMessage(data map[string][]map[string]float64) 
 	defer cc.mu.Unlock()
 
 	for group, entries := range data {
-		// Only accept groups that are configured
-		cfgs, ok := cc.configs[group]
+		// Only accept groups that are configured.
+		nameSet, ok := cc.configSet[group]
 		if !ok {
 			continue
 		}
 
-		// Build a lookup of configured metric names for validation
-		configuredNames := make(map[string]bool, len(cfgs))
-		for _, c := range cfgs {
-			configuredNames[c.Name] = true
-		}
-
-		var values []CustomMetricValue
+		// Collapse to one value per configured name (last writer wins). A client
+		// that repeats a name, or splits names across multiple objects, must not
+		// produce duplicate series downstream — duplicates would, for instance,
+		// make Prometheus reject the whole scrape. Map presence (not the value)
+		// signals "seen", so a legitimate 0.0 is preserved.
+		seen := make(map[string]float64, len(nameSet))
 		for _, entry := range entries {
 			for name, val := range entry {
-				if !configuredNames[name] {
+				if _, configured := nameSet[name]; !configured {
 					continue // skip unconfigured metrics
 				}
-				values = append(values, CustomMetricValue{
-					Name:  name,
-					Value: val,
-				})
+				seen[name] = val
 			}
 		}
 
-		if len(values) > 0 {
-			cc.latest[group] = values
-			cc.debugDone = true
-		} else {
+		if len(seen) == 0 {
 			cc.debugf("[custom] discarded message for group %q: no configured metrics matched", group)
+			continue
 		}
+
+		// Emit in config order for a deterministic, stable encoding.
+		values := make([]CustomMetricValue, 0, len(seen))
+		for _, name := range cc.configOrder[group] {
+			if val, ok := seen[name]; ok {
+				values = append(values, CustomMetricValue{Name: name, Value: val})
+			}
+		}
+		cc.latest[group] = values
+		cc.debugDone.Store(true)
 	}
 }
 

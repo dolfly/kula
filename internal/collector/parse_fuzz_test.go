@@ -101,17 +101,20 @@ func FuzzCustomMessage(f *testing.F) {
 	f.Add([]byte(`{"custom":{"unconfigured":[{"x":1}]}}`))
 	f.Add([]byte(`{"custom":{"cpu_fans":[]}}`))
 	f.Add([]byte(`{"custom":{"cpu_fans":[{}]}}`))
+	f.Add([]byte(`{"custom":{"cpu_fans":[{"fan1":1},{"fan1":2}]}}`)) // repeated name -> deduped
 	f.Add([]byte(`not json at all`))
 
 	configs := map[string][]config.CustomMetricConfig{
 		"cpu_fans": {{Name: "fan1"}, {Name: "fan2"}},
 		"room":     {{Name: "ambient"}},
 	}
+	set, order := indexConfigs(configs)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		cc := &customCollector{
-			latest:  make(map[string][]CustomMetricValue),
-			configs: configs,
+			latest:      make(map[string][]CustomMetricValue),
+			configSet:   set,
+			configOrder: order,
 		}
 		var msg customMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
