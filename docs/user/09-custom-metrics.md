@@ -72,8 +72,12 @@ done
 - The socket path follows `storage.directory`; if Kula fell back to `~/.kula`, the socket is
   there instead.
 - Group and metric names should be stable — they key the charts. Values may be integers or
-  floats.
+  floats. Sending the same name twice in one message keeps only the last value.
 - Custom metrics are stored alongside everything else in the tiered ring-buffer, so they have
   history and appear in downsampled views too.
+- **Staleness.** A group stops reporting once its producer goes quiet, leaving a gap on the
+  chart rather than a frozen line. The window defaults to a few `collection.interval` cycles;
+  set `applications.custom_stale_after` (e.g. `10s`) to override. Push roughly on the
+  collection interval to keep a feed live.
 
 Next: [AI Assistant](10-ai-assistant.md).

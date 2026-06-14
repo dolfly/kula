@@ -216,6 +216,11 @@ type ApplicationsConfig struct {
 	Postgres   PostgresConfig                  `yaml:"postgres"`
 	Mysql      MysqlConfig                     `yaml:"mysql"`
 	Custom     map[string][]CustomMetricConfig `yaml:"custom"`
+	// CustomStaleAfter is how long a custom chart group keeps reporting its last
+	// values after its producer stops pushing; once exceeded the feed is dropped
+	// so the chart shows a gap rather than a frozen line. Zero = derive from
+	// collection.interval. Example: custom_stale_after: 10s
+	CustomStaleAfter time.Duration `yaml:"custom_stale_after"`
 }
 
 // CustomMetricConfig defines a single metric line within a custom chart group.

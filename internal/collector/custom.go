@@ -22,6 +22,26 @@ import (
 // the collection loop are never dropped mid-stream.
 const customConnIdleTimeout = 5 * time.Minute
 
+const (
+	// defaultCustomStaleFloor is the minimum derived staleness window. It keeps
+	// sub-second collection intervals from flapping on socket/scheduling jitter.
+	defaultCustomStaleFloor = 5 * time.Second
+	// defaultCustomStaleCycles is how many collection intervals a group may miss
+	// before it is treated as stale, when no explicit window is configured.
+	defaultCustomStaleCycles = 5
+)
+
+// defaultCustomStaleAfter derives a staleness window from the collection
+// interval. Producers are expected to push roughly once per interval, so a few
+// missed cycles means the feed has stopped.
+func defaultCustomStaleAfter(interval time.Duration) time.Duration {
+	d := time.Duration(defaultCustomStaleCycles) * interval
+	if d < defaultCustomStaleFloor {
+		d = defaultCustomStaleFloor
+	}
+	return d
+}
+
 // customCollector listens on a Unix socket for JSON-encoded custom metrics.
 //
 // Clients connect, send a single JSON line, and disconnect. The expected format:
@@ -34,13 +54,21 @@ const customConnIdleTimeout = 5 * time.Minute
 // and store values.
 type customCollector struct {
 	mu          sync.RWMutex
-	latest      map[string][]CustomMetricValue
+	latest      map[string]customGroup
 	configSet   map[string]map[string]struct{} // group -> set of configured names (membership)
 	configOrder map[string][]string            // group -> configured names in config order
+	staleAfter  time.Duration                  // drop a group's values this long after its last update
 	sockPath    string
 	listener    net.Listener
 	debug       bool
 	debugDone   atomic.Bool
+}
+
+// customGroup is the latest accepted values for one chart group together with
+// the time they arrived, so a feed whose producer has stopped can be expired.
+type customGroup struct {
+	values []CustomMetricValue
+	seen   time.Time
 }
 
 // indexConfigs precomputes, per group, the set of configured metric names (for
@@ -72,7 +100,9 @@ type customMessage struct {
 }
 
 // newCustomCollector creates a new collector and starts listening on the socket.
-func newCustomCollector(ctx context.Context, sockPath string, configs map[string][]config.CustomMetricConfig, debug bool) (*customCollector, error) {
+// staleAfter must be > 0; callers resolve a zero config value to a default
+// (see defaultCustomStaleAfter) before constructing.
+func newCustomCollector(ctx context.Context, sockPath string, configs map[string][]config.CustomMetricConfig, staleAfter time.Duration, debug bool) (*customCollector, error) {
 	// Remove any stale socket file
 	_ = os.Remove(sockPath)
 
@@ -88,9 +118,10 @@ func newCustomCollector(ctx context.Context, sockPath string, configs map[string
 
 	set, order := indexConfigs(configs)
 	cc := &customCollector{
-		latest:      make(map[string][]CustomMetricValue),
+		latest:      make(map[string]customGroup),
 		configSet:   set,
 		configOrder: order,
+		staleAfter:  staleAfter,
 		sockPath:    sockPath,
 		listener:    listener,
 		debug:       debug,
@@ -98,7 +129,7 @@ func newCustomCollector(ctx context.Context, sockPath string, configs map[string
 
 	go cc.acceptLoop(ctx)
 
-	log.Printf("[custom] listening on %s (%d chart groups configured)", sockPath, len(configs))
+	log.Printf("[custom] listening on %s (%d chart groups configured, stale after %s)", sockPath, len(configs), staleAfter)
 	return cc, nil
 }
 
@@ -215,7 +246,7 @@ func (cc *customCollector) processMessage(data map[string][]map[string]float64) 
 				values = append(values, CustomMetricValue{Name: name, Value: val})
 			}
 		}
-		cc.latest[group] = values
+		cc.latest[group] = customGroup{values: values, seen: time.Now()}
 		cc.debugDone.Store(true)
 	}
 }
@@ -229,12 +260,21 @@ func (cc *customCollector) Latest() map[string][]CustomMetricValue {
 		return nil
 	}
 
-	// Return a copy to avoid races
+	// Return a copy to avoid races, dropping feeds whose producer has gone quiet
+	// so a stopped feed leaves a gap on the chart instead of freezing at its last
+	// value.
+	now := time.Now()
 	result := make(map[string][]CustomMetricValue, len(cc.latest))
-	for k, v := range cc.latest {
-		cp := make([]CustomMetricValue, len(v))
-		copy(cp, v)
+	for k, g := range cc.latest {
+		if now.Sub(g.seen) > cc.staleAfter {
+			continue
+		}
+		cp := make([]CustomMetricValue, len(g.values))
+		copy(cp, g.values)
 		result[k] = cp
+	}
+	if len(result) == 0 {
+		return nil
 	}
 	return result
 }

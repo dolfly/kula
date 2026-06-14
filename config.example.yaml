@@ -270,6 +270,11 @@ applications:
   #     - name: ambient
   #       unit: °C
   #       max: 50
+  #
+  # How long a group keeps reporting its last values after its producer stops
+  # pushing. Once exceeded the feed is dropped so the chart shows a gap instead
+  # of a frozen line. Omit (or 0) to derive from collection.interval.
+  # custom_stale_after: 10s
 
   # PostgreSQL monitoring
   # Connects via lib/pq. Supports TCP and Unix socket.

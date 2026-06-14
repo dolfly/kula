@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+	"time"
 
 	"kula/internal/config"
 )
@@ -112,9 +113,10 @@ func FuzzCustomMessage(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		cc := &customCollector{
-			latest:      make(map[string][]CustomMetricValue),
+			latest:      make(map[string]customGroup),
 			configSet:   set,
 			configOrder: order,
+			staleAfter:  time.Minute,
 		}
 		var msg customMessage
 		if err := json.Unmarshal(data, &msg); err != nil {

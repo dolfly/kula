@@ -448,7 +448,7 @@ func TestCustomCollector(t *testing.T) {
 		},
 	}
 
-	cc, err := newCustomCollector(context.Background(), sockPath, cfg, false)
+	cc, err := newCustomCollector(context.Background(), sockPath, cfg, time.Minute, false)
 	if err != nil {
 		t.Fatalf("Failed to create custom collector: %v", err)
 	}
@@ -498,9 +498,10 @@ func TestCustomCollectorDedup(t *testing.T) {
 	}
 	set, order := indexConfigs(configs)
 	cc := &customCollector{
-		latest:      make(map[string][]CustomMetricValue),
+		latest:      make(map[string]customGroup),
 		configSet:   set,
 		configOrder: order,
+		staleAfter:  time.Minute,
 	}
 
 	cc.processMessage(map[string][]map[string]float64{
@@ -523,6 +524,47 @@ func TestCustomCollectorDedup(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("metric %d: expected %+v, got %+v", i, want[i], got[i])
+		}
+	}
+}
+
+// TestCustomCollectorStale verifies that a group's values are dropped once its
+// producer stops pushing, so a stopped feed leaves a gap rather than freezing at
+// its last value.
+func TestCustomCollectorStale(t *testing.T) {
+	configs := map[string][]config.CustomMetricConfig{"fans": {{Name: "fan1"}}}
+	set, order := indexConfigs(configs)
+	cc := &customCollector{
+		latest:      make(map[string]customGroup),
+		configSet:   set,
+		configOrder: order,
+		staleAfter:  20 * time.Millisecond,
+	}
+
+	cc.processMessage(map[string][]map[string]float64{"fans": {{"fan1": 1234}}})
+	if got := cc.Latest(); len(got["fans"]) != 1 {
+		t.Fatalf("fresh value should be present, got %+v", got)
+	}
+
+	time.Sleep(40 * time.Millisecond) // exceed the staleness window
+	if got := cc.Latest(); got != nil {
+		t.Errorf("stale value should be dropped, got %+v", got)
+	}
+}
+
+func TestDefaultCustomStaleAfter(t *testing.T) {
+	cases := []struct {
+		interval time.Duration
+		want     time.Duration
+	}{
+		{time.Second, 5 * time.Second},            // default interval -> 5 cycles
+		{2 * time.Second, 10 * time.Second},       // scales with interval
+		{100 * time.Millisecond, 5 * time.Second}, // sub-second clamps to the floor
+		{0, 5 * time.Second},                      // misconfigured interval clamps to the floor
+	}
+	for _, c := range cases {
+		if got := defaultCustomStaleAfter(c.interval); got != c.want {
+			t.Errorf("interval %s: want %s, got %s", c.interval, c.want, got)
 		}
 	}
 }

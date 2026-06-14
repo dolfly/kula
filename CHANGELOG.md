@@ -9,8 +9,15 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 ## [0.18.4] - TBA
 
+### Added
+
+- custom metrics: `applications.custom_stale_after` to tune how long a group
+  keeps reporting after its producer stops (default: a few collection intervals)
+
 ### Fixed
 
+- custom metrics: stop displaying a group's last values once its producer stops
+  pushing — stale feeds now leave a gap instead of a frozen line
 - custom metrics: dedup repeated metric names per message (last value wins),
   preventing duplicate Prometheus series and rejected scrapes
 - custom metrics: data race on the debug flag; surface oversized/failed socket

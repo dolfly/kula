@@ -127,7 +127,11 @@ func (c *Collector) StartApplications() {
 	// Initialize custom metrics collector if any groups are configured
 	if len(appCfg.Custom) > 0 {
 		sockPath := c.storageDir + "/kula.sock"
-		cc, err := newCustomCollector(ctx, sockPath, appCfg.Custom, collCfg.DebugLog)
+		staleAfter := appCfg.CustomStaleAfter
+		if staleAfter <= 0 {
+			staleAfter = defaultCustomStaleAfter(collCfg.Interval)
+		}
+		cc, err := newCustomCollector(ctx, sockPath, appCfg.Custom, staleAfter, collCfg.DebugLog)
 		if err != nil {
 			log.Printf("[custom] failed to start: %v", err)
 		} else {
