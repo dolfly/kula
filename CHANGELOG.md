@@ -16,6 +16,7 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 ### Fixed
 
+- storage: tolerate unclean-shutdown holes in tier reads
 - custom metrics: stop displaying a group's last values once its producer stops
   pushing — stale feeds now leave a gap instead of a frozen line
 - custom metrics: dedup repeated metric names per message (last value wins),

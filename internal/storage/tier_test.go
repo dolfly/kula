@@ -444,6 +444,122 @@ func TestOpenTierCorruptHeaderFailsLoudWithoutWiping(t *testing.T) {
 	}
 }
 
+// TestReadRecoversAfterUncleanShutdownHole reproduces the field bug where an
+// unclean reboot left a zero-filled hole in the middle of the active segment
+// (the header's count/writeOff outran payloads that were never fsynced). The old
+// reader treated the first zero-length record as end-of-data and `break`ed,
+// hiding every sample written after the hole — so the whole raw tier looked
+// empty for any recent window and queries silently fell through to a coarser
+// tier. The reader must instead skip the hole and return the surviving records.
+func TestReadRecoversAfterUncleanShutdownHole(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/tier_0.dat"
+	tier, err := OpenTier(path, 1<<20)
+	if err != nil {
+		t.Fatalf("OpenTier: %v", err)
+	}
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	const N = 10
+	for i := 0; i < N; i++ {
+		// Uniform record size so the hole we punch is record-aligned, exactly
+		// like the on-disk file from the incident.
+		if err := tier.Write(varSample(base.Add(time.Duration(i)*time.Second), 2)); err != nil {
+			t.Fatalf("Write(%d): %v", i, err)
+		}
+	}
+	recordLen := tier.writeOff / N
+	if recordLen*N != tier.writeOff {
+		t.Fatalf("records not uniform: writeOff=%d not divisible by %d", tier.writeOff, N)
+	}
+
+	// Simulate the unflushed payloads: zero out records [3,4,5] in place while
+	// leaving the header's writeOff/count pointing past them (the phantom-record
+	// state an unclean shutdown leaves behind).
+	hole := make([]byte, 3*recordLen)
+	if _, err := tier.file.WriteAt(hole, headerSize+3*recordLen); err != nil {
+		t.Fatalf("punching hole: %v", err)
+	}
+
+	newest := base.Add(time.Duration(N-1) * time.Second)
+	got, err := tier.ReadRange(base, newest.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ReadRange: %v", err)
+	}
+	// Records 0,1,2 (pre-hole) and 6,7,8,9 (post-hole) survive; 3,4,5 are gone.
+	if len(got) != 7 {
+		t.Fatalf("ReadRange returned %d records, want 7 (3 pre-hole + 4 post-hole)", len(got))
+	}
+	wantTS := []int{0, 1, 2, 6, 7, 8, 9}
+	for i, w := range wantTS {
+		want := base.Add(time.Duration(w) * time.Second)
+		if !got[i].Timestamp.Equal(want) {
+			t.Errorf("record %d ts=%s, want %s", i, got[i].Timestamp.Format(time.RFC3339), want.Format(time.RFC3339))
+		}
+	}
+
+	// A query whose window starts entirely AFTER the hole must still find the
+	// post-hole data — this is the exact symptom from the server (recent windows
+	// returned nothing from the raw tier).
+	postHole, err := tier.ReadRange(base.Add(6*time.Second), newest.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ReadRange post-hole: %v", err)
+	}
+	if len(postHole) != 4 {
+		t.Fatalf("post-hole window returned %d records, want 4", len(postHole))
+	}
+
+	// ReadLatest must see past the hole too (warmLatestCache relies on it).
+	latest, err := tier.ReadLatest(1)
+	if err != nil {
+		t.Fatalf("ReadLatest: %v", err)
+	}
+	if len(latest) != 1 || !latest[0].Timestamp.Equal(newest) {
+		t.Fatalf("ReadLatest(1) = %v, want newest %s", latest, newest.Format(time.RFC3339))
+	}
+	_ = tier.Close()
+}
+
+// TestRecordHeaderSaneRejectsMisalignedRead guards the off-by-one that an early
+// version of the resync logic hit on the real incident file: a byte-scan can
+// stop one byte before the true record boundary, where a stray length prefix
+// plus a garbage timestamp happen to look plausible. resync would then land
+// inside a record and read megabytes of garbage. The strict kind-byte check on
+// v2 records is what prevents this.
+func TestRecordHeaderSaneRejectsMisalignedRead(t *testing.T) {
+	dir := t.TempDir()
+	tier, err := OpenTier(dir+"/tier_0.dat", 1<<20)
+	if err != nil {
+		t.Fatalf("OpenTier: %v", err)
+	}
+	defer func() { _ = tier.Close() }()
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	const N = 5
+	for i := 0; i < N; i++ {
+		if err := tier.Write(varSample(base.Add(time.Duration(i)*time.Second), 2)); err != nil {
+			t.Fatalf("Write(%d): %v", i, err)
+		}
+	}
+
+	// Read the first record's on-disk bytes (4-byte length prefix + payload).
+	recLen := tier.writeOff / N
+	buf := make([]byte, recLen)
+	if _, err := tier.file.ReadAt(buf, headerSize); err != nil {
+		t.Fatalf("ReadAt: %v", err)
+	}
+
+	if _, ok := tier.recordHeaderSane(buf); !ok {
+		t.Fatal("recordHeaderSane rejected a real v2 record header (aligned)")
+	}
+	// One leading zero byte, exactly the trailing edge of a zero hole: the kind
+	// byte no longer sits at offset 4, so a v2 header must be rejected.
+	mis := append([]byte{0x00}, buf...)
+	if _, ok := tier.recordHeaderSane(mis); ok {
+		t.Fatal("recordHeaderSane accepted a 1-byte-misaligned read; resync would land inside a record")
+	}
+}
+
 // TestTierWriteNilReturnsError verifies Write(nil) returns an error rather than
 // panicking the collection loop.
 func TestTierWriteNilReturnsError(t *testing.T) {

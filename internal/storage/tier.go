@@ -376,12 +376,19 @@ func (t *Tier) ReadRange(from, to time.Time) ([]*AggregatedSample, error) {
 	// For v2 binary files and wrapped tiers, we check whether 'from' is past
 	// the start of segment 2; if so we skip segment 1 entirely (safe because
 	// each segment always starts on a record boundary).
-	type segment struct{ start, size int64 }
+	type segment struct {
+		start, size int64
+		// resync is true for the active head segment ([0, writeOff)). There a
+		// zero/garbage record is a hole left by an unclean shutdown, so the scan
+		// must skip it and continue. It is false for the old wrapped segment,
+		// where a zero length is the legitimate end-of-segment sentinel.
+		resync bool
+	}
 	var segments []segment
 
 	if t.wrapped {
-		seg1 := segment{t.oldestOff, t.maxData - t.oldestOff}
-		seg2 := segment{0, t.writeOff}
+		seg1 := segment{start: t.oldestOff, size: t.maxData - t.oldestOff}
+		seg2 := segment{start: 0, size: t.writeOff, resync: true}
 
 		if t.codecVer >= codecVersion2 && t.writeOff > 0 {
 			// Peek at the oldest record in segment 2 (data region offset 0).
@@ -396,7 +403,7 @@ func (t *Tier) ReadRange(from, to time.Time) ([]*AggregatedSample, error) {
 			segments = []segment{seg1, seg2}
 		}
 	} else {
-		segments = []segment{{0, t.writeOff}}
+		segments = []segment{{start: 0, size: t.writeOff, resync: true}}
 	}
 
 	for _, seg := range segments {
@@ -411,18 +418,31 @@ func (t *Tier) ReadRange(from, to time.Time) ([]*AggregatedSample, error) {
 				break
 			}
 
-			lenBuf := make([]byte, 4)
-			if _, err := io.ReadFull(br, lenBuf); err != nil {
+			// Peek the length prefix (plus enough of the header to sanity-check a
+			// record during resync) without consuming it.
+			peekN := int64(13)
+			if peekN > seg.size-bytesRead {
+				peekN = seg.size - bytesRead
+			}
+			hdr, _ := br.Peek(int(peekN))
+			if len(hdr) < 4 {
 				break
 			}
-			dataLen := binary.LittleEndian.Uint32(lenBuf)
+			dataLen := binary.LittleEndian.Uint32(hdr[0:4])
 
-			if dataLen == 0 || int64(dataLen) > t.maxData {
-				break
+			if dataLen == 0 || int64(dataLen) > t.maxData || bytesRead+4+int64(dataLen) > seg.size {
+				// In the old wrapped segment a zero length is the end-of-segment
+				// sentinel: stop. In the active segment it is a hole from an
+				// unclean shutdown — skip past it and keep the data written after
+				// it instead of abandoning the rest of the tier.
+				if !seg.resync || !t.resyncToNextRecord(br, &bytesRead, seg.size) {
+					break
+				}
+				continue
 			}
 
 			recordLen := int64(4 + dataLen)
-			if bytesRead+recordLen > seg.size {
+			if _, err := br.Discard(4); err != nil {
 				break
 			}
 
@@ -480,14 +500,19 @@ func (t *Tier) ReadLatest(n int) ([]*AggregatedSample, error) {
 		return nil, nil
 	}
 
-	type segment struct{ start, size int64 }
+	type segment struct {
+		start, size int64
+		// resync mirrors ReadRange: skip holes in the active head segment, but
+		// stop at the end-of-segment sentinel in the old wrapped segment.
+		resync bool
+	}
 	var segments []segment
 
 	if t.wrapped {
-		segments = append(segments, segment{t.oldestOff, t.maxData - t.oldestOff})
-		segments = append(segments, segment{0, t.writeOff})
+		segments = append(segments, segment{start: t.oldestOff, size: t.maxData - t.oldestOff})
+		segments = append(segments, segment{start: 0, size: t.writeOff, resync: true})
 	} else {
-		segments = append(segments, segment{0, t.writeOff})
+		segments = append(segments, segment{start: 0, size: t.writeOff, resync: true})
 	}
 
 	// First pass: find the offsets of all records
@@ -506,19 +531,25 @@ func (t *Tier) ReadLatest(n int) ([]*AggregatedSample, error) {
 			if seg.size-bytesRead < 4 {
 				break
 			}
-			lenBuf := make([]byte, 4)
-			if _, err := io.ReadFull(br, lenBuf); err != nil {
+			peekN := int64(13)
+			if peekN > seg.size-bytesRead {
+				peekN = seg.size - bytesRead
+			}
+			hdr, _ := br.Peek(int(peekN))
+			if len(hdr) < 4 {
 				break
 			}
-			dataLen := binary.LittleEndian.Uint32(lenBuf)
-			if dataLen == 0 || int64(dataLen) > t.maxData {
-				break
+			dataLen := binary.LittleEndian.Uint32(hdr[0:4])
+			if dataLen == 0 || int64(dataLen) > t.maxData || bytesRead+4+int64(dataLen) > seg.size {
+				// Active segment: skip an unclean-shutdown hole; old segment: the
+				// sentinel ends the segment. (See ReadRange for the rationale.)
+				if !seg.resync || !t.resyncToNextRecord(br, &bytesRead, seg.size) {
+					break
+				}
+				continue
 			}
 
 			recordLen := int64(4 + dataLen)
-			if bytesRead+recordLen > seg.size {
-				break
-			}
 
 			loc := recordLoc{
 				offset: headerSize + seg.start + bytesRead,
@@ -531,7 +562,7 @@ func (t *Tier) ReadLatest(n int) ([]*AggregatedSample, error) {
 				locs[len(locs)-1] = loc
 			}
 
-			if _, err := br.Discard(int(dataLen)); err != nil {
+			if _, err := br.Discard(int(recordLen)); err != nil {
 				break
 			}
 			bytesRead += recordLen
@@ -608,6 +639,97 @@ func (t *Tier) readRecord(data []byte) (*AggregatedSample, error) {
 		// Legacy binary record written before the kind-byte format.
 		return decodeSample(data)
 	}
+}
+
+// resyncToNextRecord advances br past a corrupt or zero-filled hole until it is
+// positioned at the start of a plausible record, returning true on success and
+// false if it reaches the end of the segment first. *bytesRead is advanced by
+// the number of bytes skipped.
+//
+// Such holes are the signature of an unclean shutdown: Kula does not fsync every
+// write (see Close), so a power loss can leave the header's count/writeOff
+// pointing past record payloads that never reached disk, which read back as
+// zeros. Without this resync the scan would stop at the first zero record and
+// silently hide every sample written after it. Only called on the active head
+// segment, where any zero/garbage is corruption rather than the legitimate
+// end-of-segment sentinel written on wrap.
+func (t *Tier) resyncToNextRecord(br *bufio.Reader, bytesRead *int64, segSize int64) bool {
+	// Peek a window large enough to hold a typical record plus the following
+	// record's header, so resync can require TWO valid records in a row before
+	// accepting a position. A single byte misalignment can momentarily mimic one
+	// plausible record (a stray length + timestamp); it almost never mimics two.
+	const resyncPeek = 4096
+	for *bytesRead < segSize {
+		remain := segSize - *bytesRead
+		peekN := int64(resyncPeek)
+		if peekN > remain {
+			peekN = remain
+		}
+		hdr, _ := br.Peek(int(peekN))
+		if dataLen, ok := t.recordHeaderSane(hdr); ok {
+			next := 4 + dataLen
+			switch {
+			case *bytesRead+next >= segSize:
+				// This record runs to the end of the segment: nothing follows to
+				// cross-check, and the header itself is sane — accept.
+				return true
+			case next+13 <= int64(len(hdr)):
+				// The next record's header is within the peek window — require it
+				// to be sane too.
+				if _, ok2 := t.recordHeaderSane(hdr[next:]); ok2 {
+					return true
+				}
+			default:
+				// Record larger than the peek window; fall back to the
+				// single-record check (kind byte + sane timestamp).
+				return true
+			}
+		}
+		if _, err := br.Discard(1); err != nil {
+			return false
+		}
+		*bytesRead++
+	}
+	return false
+}
+
+// recordHeaderSane reports whether hdr — positioned at a record's 4-byte length
+// prefix — is a plausible record start, returning the payload length on success.
+// It is the validator resync uses to find the first real record after a hole.
+//
+// For v2 files it requires the explicit kind byte at the exact offset; that is
+// what rejects the off-by-N misalignments a byte-scan would otherwise accept
+// (a coincidental length + a garbage timestamp read one byte early). It also
+// bounds the timestamp to a sane window (this millennium, no later than the
+// tier's newest sample plus slop). Legacy records (pre-kind-byte) are validated
+// leniently on length + timestamp only; such files are migrated to v2 on open,
+// so the strict path covers everything the readers see in practice.
+func (t *Tier) recordHeaderSane(hdr []byte) (int64, bool) {
+	if len(hdr) < 13 {
+		return 0, false
+	}
+	dataLen := int64(binary.LittleEndian.Uint32(hdr[0:4]))
+	if dataLen <= 0 || dataLen > t.maxData {
+		return 0, false
+	}
+	var ts time.Time
+	if hdr[4] == recordKindBinary {
+		ts = time.Unix(0, int64(binary.LittleEndian.Uint64(hdr[5:13])))
+	} else {
+		if t.codecVer >= codecVersion2 {
+			// A v2 tier's records all carry the kind byte; anything else here is
+			// a misaligned read into record interior, not a record boundary.
+			return 0, false
+		}
+		ts = time.Unix(0, int64(binary.LittleEndian.Uint64(hdr[4:12])))
+	}
+	if ts.IsZero() || ts.Year() < 2000 {
+		return 0, false
+	}
+	if !t.newestTS.IsZero() && ts.After(t.newestTS.Add(time.Hour)) {
+		return 0, false
+	}
+	return dataLen, true
 }
 
 // recordLenAt reads just the 4-byte length prefix of the record at the given
