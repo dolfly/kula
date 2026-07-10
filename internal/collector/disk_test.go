@@ -107,3 +107,25 @@ func TestIsPartition(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectFileSystemsWithExplicitMountPoints(t *testing.T) {
+	procPath = "testdata/docker_proc"
+
+	// Try collecting with MountPoints filter set to "/dev/shm", which has "tmpfs" type.
+	c := New(config.GlobalConfig{}, config.CollectionConfig{
+		MountPoints: []string{"/dev/shm"},
+	}, config.ApplicationsConfig{}, "")
+	fs := c.collectFileSystems()
+
+	// Since we specified "/dev/shm" explicitly, it should ignore the fstype constraint (tmpfs is not in realFSTypes)
+	// and monitor "/dev/shm".
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 filesystem, got %d: %+v", len(fs), fs)
+	}
+	if fs[0].MountPoint != "/dev/shm" {
+		t.Errorf("expected mount point /dev/shm, got %s", fs[0].MountPoint)
+	}
+	if fs[0].FSType != "/dev/shm" && fs[0].FSType != "tmpfs" {
+		t.Errorf("expected fstype tmpfs, got %s", fs[0].FSType)
+	}
+}

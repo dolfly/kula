@@ -350,8 +350,8 @@ func (c *Collector) scanMounts(f *os.File, result *[]FileSystemInfo, seen map[st
 			continue
 		}
 
-		// Only accepted filesystem types
-		if !realFSTypes[fstype] {
+		// Only accepted filesystem types (unless explicit mountpoints filter is configured)
+		if !explicitFilter && !realFSTypes[fstype] {
 			c.debugf(" fs: skipping %q at %q — filesystem type %q not monitored", device, mount, fstype)
 			continue
 		}

@@ -9,6 +9,10 @@ Types of changes: Added, Changed, Deprecated, Removed, Fixed, Security
 
 ## [Unreleased] - TBA
 
+### Changed
+
+- ignore fs type constraint when mountpoints is specified (#35)
+
 ### Fixed
 
 - remove systemd ProtectHome setting that prevents /home diskspace monitoring (#33)
